@@ -105,6 +105,8 @@ pub mod zh {
                 _ => {
                     #[cfg(debug_assertions)]
                     unreachable!("unknown: {:?} in integer", n);
+                    #[cfg(not(debug_assertions))]
+                    ""
                 }
             };
             let u = if n % 4 != 0 {
@@ -321,6 +323,9 @@ pub mod zh {
                         n => {
                             #[cfg(debug_assertions)]
                             unreachable!("unknown: {:?} in integer", n);
+
+                            #[cfg(not(debug_assertions))]
+                            n
                         }
                     };
                     builder.push_zh_word(symbols, txt);
@@ -358,6 +363,8 @@ pub mod zh {
                         _ => {
                             #[cfg(debug_assertions)]
                             unreachable!("unknown: {:?} in greek", pair.as_str());
+                            #[cfg(not(debug_assertions))]
+                            ""
                         }
                     };
                     builder.push_zh_word(symbols, txt);
@@ -542,6 +549,8 @@ pub mod en {
                 n => {
                     #[cfg(debug_assertions)]
                     unreachable!("unknown: {:?} in integer", n);
+                    #[cfg(not(debug_assertions))]
+                    n
                 }
             };
             builder.push_en_word(symbols, txt);
@@ -725,6 +734,8 @@ pub mod en {
                         n => {
                             #[cfg(debug_assertions)]
                             unreachable!("unknown: {:?} in integer", n);
+                            #[cfg(not(debug_assertions))]
+                            n
                         }
                     };
                     builder.push_en_word(symbols, txt);
@@ -764,6 +775,8 @@ pub mod en {
                         _ => {
                             #[cfg(debug_assertions)]
                             unreachable!("unknown: {:?} in greek", pair.as_str());
+                            #[cfg(not(debug_assertions))]
+                            ""
                         }
                     };
                     builder.push_en_word(symbols, txt);

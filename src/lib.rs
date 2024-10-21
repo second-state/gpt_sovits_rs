@@ -8,6 +8,7 @@ pub mod symbols;
 pub mod text;
 
 pub use tch::Device;
+use text_splitter::{Characters, TextSplitter};
 
 pub struct GPTSovitsConfig {
     pub cn_bert_path: Option<String>,
@@ -58,6 +59,7 @@ impl GPTSovitsConfig {
             gpt_sovits,
             ssl,
             jieba: jieba_rs::Jieba::new(),
+            text_splitter: TextSplitter::new(50),
         })
     }
 }
@@ -70,6 +72,7 @@ pub struct GPTSovits {
     ssl: tch::CModule,
 
     jieba: jieba_rs::Jieba,
+    text_splitter: TextSplitter<Characters>,
 }
 
 impl GPTSovits {
@@ -80,6 +83,7 @@ impl GPTSovits {
         gpt_sovits: tch::CModule,
         ssl: tch::CModule,
         jieba: jieba_rs::Jieba,
+        text_splitter: TextSplitter<Characters>,
     ) -> Self {
         Self {
             zh_bert,
@@ -88,6 +92,7 @@ impl GPTSovits {
             gpt_sovits,
             ssl,
             jieba,
+            text_splitter,
         }
     }
 
@@ -115,6 +120,7 @@ impl GPTSovits {
         ref_text: &str,
         target_text: &str,
     ) -> anyhow::Result<Tensor> {
+        log::debug!("start infer");
         tch::no_grad(|| {
             let ref_audio = Tensor::from_slice(ref_audio_samples)
                 .to_device(self.device)
