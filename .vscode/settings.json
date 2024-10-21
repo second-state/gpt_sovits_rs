@@ -1,5 +1,0 @@
-{
-    "rust-analyzer.server.extraEnv": {
-        "LIBTORCH": "/home/csh/torch_2.4/libtorch"
-    },
-}
