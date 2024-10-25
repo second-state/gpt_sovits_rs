@@ -12,7 +12,6 @@ pinyin = "0.10.0"
 wav_io = "0.1.14"
 serde_json = "1.0"
 jieba-rs = { version = "0.7", features = ["tfidf", "textrank"] }
-grapheme_to_phoneme = "0.1.0"
 arpabet = "2.0.0"
 log = "0.4.22"
 env_logger = "0.11.5"
