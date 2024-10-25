@@ -120,6 +120,13 @@ impl GPTSovits {
         ref_text: &str,
         target_text: &str,
     ) -> anyhow::Result<Tensor> {
+        // 避免句首吞字
+        let ref_text = if !ref_text.ends_with(['。', '.']) {
+            ref_text.to_string() + "."
+        } else {
+            ref_text.to_string()
+        };
+
         log::debug!("start infer");
         tch::no_grad(|| {
             let ref_audio = Tensor::from_slice(ref_audio_samples)
@@ -131,7 +138,7 @@ impl GPTSovits {
 
             let ssl_content = self.ssl.forward_ts(&[&ref_audio_16k])?;
 
-            let (ref_phone_seq, ref_bert_seq) = text::get_phone_and_bert(self, ref_text)?;
+            let (ref_phone_seq, ref_bert_seq) = text::get_phone_and_bert(self, &ref_text)?;
             let (phone_seq, bert_seq) = text::get_phone_and_bert(self, target_text)?;
 
             let audio = self.gpt_sovits.forward_ts(&[
