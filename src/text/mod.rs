@@ -323,30 +323,41 @@ pub fn get_phone_and_bert(gpts: &GPTSovits, text: &str) -> anyhow::Result<(Tenso
 
     let mut phone_builder = PhoneBuilder::new();
     phone_builder.push_text(&gpts.jieba, &gpts.symbols, text);
-    // 加一个 \u{7a7a} '空' 避免音频戛然而止
-    phone_builder.push_punctuation(&gpts.symbols, ".");
+    if !text.ends_with(['。', '.', '?', '？', '!', '！']) {
+        phone_builder.push_punctuation(&gpts.symbols, ".");
+    }
 
     for s in &phone_builder.sentence {
         match s {
             Sentence::Zh(zh) => {
+                log::trace!("zh text: {:?}", zh.zh_text);
+                log::trace!("zh phones: {:?}", zh.phones);
+
                 let (t, bert) = zh.build_phone_and_bert(gpts)?;
                 phone_seq.push(t);
                 bert_seq.push(bert);
             }
             Sentence::En(en) => {
+                log::trace!("en text: {:?}", en.en_text);
+                log::trace!("en phones: {:?}", en.phones);
                 let (t, bert) = en.build_phone_and_bert(gpts)?;
                 phone_seq.push(t);
                 bert_seq.push(bert);
             }
             Sentence::Num(num) => {
                 for s in num.to_phone_sentence(&gpts.symbols)? {
+                    log::trace!("num text: {:?}", num.num_text);
                     match s {
                         Sentence::Zh(zh) => {
+                            log::trace!("num zh text: {:?}", zh.zh_text);
+                            log::trace!("num zh phones: {:?}", zh.phones);
                             let (t, bert) = zh.build_phone_and_bert(gpts)?;
                             phone_seq.push(t);
                             bert_seq.push(bert);
                         }
                         Sentence::En(en) => {
+                            log::trace!("num en text: {:?}", en.en_text);
+                            log::trace!("num en phones: {:?}", en.phones);
                             let (t, bert) = en.build_phone_and_bert(gpts)?;
                             phone_seq.push(t);
                             bert_seq.push(bert);
@@ -392,24 +403,24 @@ impl CNBertModel {
         let ids = encoding
             .get_ids()
             .into_iter()
-            .map(|x| (*x) as i64)
-            .collect::<Vec<i64>>();
+            .map(|x| (*x) as i32)
+            .collect::<Vec<i32>>();
         let text_ids = Tensor::from_slice(&ids);
         let text_ids = text_ids.unsqueeze(0).to_device(device);
 
         let mask = encoding
             .get_attention_mask()
             .into_iter()
-            .map(|x| (*x) as i64)
-            .collect::<Vec<i64>>();
+            .map(|x| (*x) as i32)
+            .collect::<Vec<i32>>();
         let text_mask = Tensor::from_slice(&mask);
         let text_mask = text_mask.unsqueeze(0).to_device(device);
 
         let token_type_ids = encoding
             .get_type_ids()
             .into_iter()
-            .map(|x| (*x) as i64)
-            .collect::<Vec<i64>>();
+            .map(|x| (*x) as i32)
+            .collect::<Vec<i32>>();
         let text_token_type_ids = Tensor::from_slice(&token_type_ids);
         let text_token_type_ids = text_token_type_ids.unsqueeze(0).to_device(device);
         (text_ids, text_mask, text_token_type_ids)
@@ -534,7 +545,7 @@ fn parse_punctuation(p: &str) -> Option<&'static str> {
         "，" | "," => Some(","),
         "。" | "." => Some("."),
         "！" | "!" => Some("!"),
-        "？" | "?" => Some("?"),
+        "？" | "?" => Some("."),
         "；" | ";" => Some("."),
         "：" | ":" => Some(","),
         "‘" | "’" | "'" => Some("'"),
@@ -581,6 +592,7 @@ impl PhoneBuilder {
         text: &str,
     ) {
         let r = jieba.cut(text, true);
+        log::trace!("jieba cut: {:?}", r);
         for t in r {
             if is_numeric(t) {
                 self.push_num_word(t);
