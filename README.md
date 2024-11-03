@@ -1,7 +1,7 @@
-# GPT-SoVits-rs
+# GPT-SoVITS-rs
 
 ## Overview
-This Rust project provides a library for integrating GPT-Sovits inference in Rust applications.  GPT-Sovits is a powerful tool for speech synthesis and voice conversion.  By using this library, developers can easily leverage the capabilities of GPT-Sovits within their Rust projects.
+This Rust project provides a library for integrating [GPT-SoVITS](https://github.com/RVC-Boss/GPT-SoVITS) inference in Rust applications.  GPT-Sovits is a powerful tool for speech synthesis and voice conversion.  By using this library, developers can easily leverage the capabilities of GPT-Sovits within their Rust projects.
 
 ## Prerequisites
 Before you can use the GPT-SoVits-rs Inference Library, you must ensure that libtorch 2.4.0 is installed on your system. libtorch is the C++ frontend for PyTorch, which is required for running the GPT-Sovits models.
