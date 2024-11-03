@@ -26,13 +26,6 @@ fn main() {
 
     log::info!("load ref done");
 
-    // let target_text =
-    //     "木兰说100%的人会死。但是有 GPT-323 的存在，我们可以活到 -200岁。-200岁啊";
-    // let target_text = "我觉得这个 piper 效果还可以,就是有时候中文的发音有点不太对.";
-    // let target_text =
-    // "-200,Good morning.我现在支持了英文和中文这两种语言。English and Chinese.I love Rust very much.我爱Rust！你知不知道1+1=多少？30%的人不知道哦.你可以问问 lisa_GPT-32 有-70+30=? 劫-98G";
-
-    // let target_text = "木兰当户织.";
     let text = std::fs::read_to_string("./input.txt").unwrap();
 
     let text_splitter = text_splitter::TextSplitter::new(50);
