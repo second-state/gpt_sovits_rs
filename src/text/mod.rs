@@ -375,23 +375,20 @@ pub fn get_phone_and_bert(gpts: &GPTSovits, text: &str) -> anyhow::Result<(Tenso
     Ok((phone_seq, bert_seq))
 }
 
-pub struct CNBertModel {
-    bert_and_tokenizer: Option<(tch::CModule, Tokenizer)>,
+pub enum CNBertModel {
+    None,
+    TchBert(tch::CModule, Tokenizer),
 }
 
 impl Default for CNBertModel {
     fn default() -> Self {
-        Self {
-            bert_and_tokenizer: None,
-        }
+        Self::None
     }
 }
 
 impl CNBertModel {
     pub fn new(bert: tch::CModule, tokenizer: Tokenizer) -> Self {
-        Self {
-            bert_and_tokenizer: Some((bert, tokenizer)),
-        }
+        Self::TchBert(bert, tokenizer)
     }
 
     fn encode_text(
@@ -432,16 +429,17 @@ impl CNBertModel {
         word2ph: &[i32],
         device: tch::Device,
     ) -> anyhow::Result<Tensor> {
-        let bert = match &self.bert_and_tokenizer {
-            Some((bert, tokenizer)) => {
+        let bert = match self {
+            CNBertModel::None => {
+                let len: i32 = word2ph.iter().sum();
+                Tensor::zeros(&[len as i64, 1024], (Kind::Float, device))
+            }
+            CNBertModel::TchBert(bert, tokenizer) => {
                 let (text_ids, text_mask, text_token_type_ids) =
                     Self::encode_text(tokenizer, text, device);
                 let text_word2ph = Tensor::from_slice(word2ph).to_device(device);
                 bert.forward_ts(&[&text_ids, &text_mask, &text_token_type_ids, &text_word2ph])?
-            }
-            None => {
-                let len: i32 = word2ph.iter().sum();
-                Tensor::zeros(&[len as i64, 1024], (Kind::Float, device))
+                    .to_device(device)
             }
         };
 
@@ -462,8 +460,6 @@ impl ZhSentence {
         let bert = gpts
             .zh_bert
             .get_text_bert(&self.zh_text, &self.word2ph, gpts.device)?;
-
-        let bert = bert.zero().to_device(gpts.device);
 
         let t = Tensor::from_slice(&self.phones_ids)
             .to_device(gpts.device)

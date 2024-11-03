@@ -1,6 +1,6 @@
 [package]
 name = "gpt_sovits_rs"
-version = "0.0.1"
+version = "0.0.2"
 edition = "2021"
 description = "A GPT_Sovits inference lib in Rust base on pytorch"
 license = "MIT"
@@ -9,7 +9,7 @@ authors = ["csh <458761603@qq.com>"]
 
 [dependencies]
 anyhow = "1.0.87"
-# ort = "1.16.3"
+# ort = { version = "2.0.0-rc.8" }
 tokenizers = { version = "0.20.0", features = ["http"] }
 tch = { version = "0.17.0" }
 pinyin = "0.10.0"
