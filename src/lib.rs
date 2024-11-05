@@ -8,21 +8,18 @@ pub mod symbols;
 pub mod text;
 
 pub use tch::Device;
-use text_splitter::{Characters, TextSplitter};
 
 pub struct GPTSovitsConfig {
     pub cn_bert_path: Option<String>,
     pub tokenizer_path: Option<String>,
-    pub gpt_sovits_path: String,
     pub ssl_path: String,
 }
 
 impl GPTSovitsConfig {
-    pub fn new(gpt_sovits_path: String, ssl_path: String) -> Self {
+    pub fn new(ssl_path: String) -> Self {
         Self {
             cn_bert_path: None,
             tokenizer_path: None,
-            gpt_sovits_path,
             ssl_path,
         }
     }
@@ -34,9 +31,6 @@ impl GPTSovitsConfig {
     }
 
     pub fn build(&self, device: Device) -> anyhow::Result<GPTSovits> {
-        let mut gpt_sovits = tch::CModule::load_on_device(&self.gpt_sovits_path, device)?;
-        gpt_sovits.set_eval();
-
         let cn_bert = match (&self.cn_bert_path, &self.tokenizer_path) {
             (Some(cn_bert_path), Some(tokenizer_path)) => {
                 let tokenizer = tokenizers::Tokenizer::from_file(&tokenizer_path)
@@ -56,11 +50,48 @@ impl GPTSovitsConfig {
             zh_bert: cn_bert,
             device,
             symbols: symbols::SYMBOLS.clone(),
-            gpt_sovits,
             ssl,
             jieba: jieba_rs::Jieba::new(),
-            text_splitter: TextSplitter::new(50),
+            speakers: HashMap::new(),
         })
+    }
+}
+
+#[derive(Debug)]
+pub struct Speaker {
+    name: String,
+    gpt_sovits: tch::CModule,
+    ref_text: String,
+    ssl_content: Tensor,
+    ref_audio_32k: Tensor,
+    ref_phone_seq: Tensor,
+    ref_bert_seq: Tensor,
+}
+
+impl Speaker {
+    pub fn get_name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn get_ref_text(&self) -> &str {
+        &self.ref_text
+    }
+
+    pub fn get_ref_audio_32k(&self) -> &Tensor {
+        &self.ref_audio_32k
+    }
+
+    pub fn infer(&self, text_phone_seq: &Tensor, bert_seq: &Tensor) -> anyhow::Result<Tensor> {
+        let audio = self.gpt_sovits.forward_ts(&[
+            &self.ssl_content,
+            &self.ref_audio_32k,
+            &self.ref_phone_seq,
+            &text_phone_seq,
+            &self.ref_bert_seq,
+            &bert_seq,
+        ])?;
+
+        Ok(audio)
     }
 }
 
@@ -68,11 +99,11 @@ pub struct GPTSovits {
     zh_bert: CNBertModel,
     device: tch::Device,
     symbols: HashMap<String, i64>,
-    gpt_sovits: tch::CModule,
     ssl: tch::CModule,
 
+    speakers: HashMap<String, Speaker>,
+
     jieba: jieba_rs::Jieba,
-    text_splitter: TextSplitter<Characters>,
 }
 
 impl GPTSovits {
@@ -80,20 +111,62 @@ impl GPTSovits {
         zh_bert: CNBertModel,
         device: tch::Device,
         symbols: HashMap<String, i64>,
-        gpt_sovits: tch::CModule,
         ssl: tch::CModule,
         jieba: jieba_rs::Jieba,
-        text_splitter: TextSplitter<Characters>,
     ) -> Self {
         Self {
             zh_bert,
             device,
             symbols,
-            gpt_sovits,
+            speakers: HashMap::new(),
             ssl,
             jieba,
-            text_splitter,
         }
+    }
+
+    pub fn create_speaker(
+        &mut self,
+        name: &str,
+        gpt_sovits_path: &str,
+        ref_audio_samples: &[f32],
+        ref_audio_sr: usize,
+        ref_text: &str,
+    ) -> anyhow::Result<()> {
+        let mut gpt_sovits = tch::CModule::load_on_device(gpt_sovits_path, self.device)?;
+        gpt_sovits.set_eval();
+
+        // 避免句首吞字
+        let ref_text = if !ref_text.ends_with(['。', '.']) {
+            ref_text.to_string() + "."
+        } else {
+            ref_text.to_string()
+        };
+
+        let ref_audio = Tensor::from_slice(ref_audio_samples)
+            .to_device(self.device)
+            .unsqueeze(0);
+
+        let ref_audio_16k = self.resample(&ref_audio, ref_audio_sr, 16000)?;
+        let ref_audio_32k = self.resample(&ref_audio, ref_audio_sr, 32000)?;
+
+        tch::no_grad(|| {
+            let ssl_content = self.ssl.forward_ts(&[&ref_audio_16k])?;
+
+            let (ref_phone_seq, ref_bert_seq) = text::get_phone_and_bert(self, &ref_text)?;
+
+            let speaker = Speaker {
+                name: name.to_string(),
+                gpt_sovits,
+                ref_text,
+                ssl_content,
+                ref_audio_32k,
+                ref_phone_seq,
+                ref_bert_seq,
+            };
+
+            self.speakers.insert(name.to_string(), speaker);
+            Ok(())
+        })
     }
 
     pub fn resample(&self, audio: &Tensor, sr: usize, target_sr: usize) -> anyhow::Result<Tensor> {
@@ -112,44 +185,17 @@ impl GPTSovits {
     }
 
     /// generate a audio tensor from text
-    /// sr: 32000
-    pub fn infer(
-        &self,
-        ref_audio_samples: &[f32],
-        ref_audio_sr: usize,
-        ref_text: &str,
-        target_text: &str,
-    ) -> anyhow::Result<Tensor> {
-        // 避免句首吞字
-        let ref_text = if !ref_text.ends_with(['。', '.']) {
-            ref_text.to_string() + "."
-        } else {
-            ref_text.to_string()
-        };
-
+    pub fn infer(&self, speaker: &str, target_text: &str) -> anyhow::Result<Tensor> {
         log::debug!("start infer");
         tch::no_grad(|| {
-            let ref_audio = Tensor::from_slice(ref_audio_samples)
-                .to_device(self.device)
-                .unsqueeze(0);
+            let speaker = self
+                .speakers
+                .get(speaker)
+                .ok_or_else(|| anyhow::anyhow!("speaker not found"))?;
 
-            let ref_audio_16k = self.resample(&ref_audio, ref_audio_sr, 16000)?;
-            let ref_audio_sr = self.resample(&ref_audio, ref_audio_sr, 32000)?;
-
-            let ssl_content = self.ssl.forward_ts(&[&ref_audio_16k])?;
-
-            let (ref_phone_seq, ref_bert_seq) = text::get_phone_and_bert(self, &ref_text)?;
             let (phone_seq, bert_seq) = text::get_phone_and_bert(self, target_text)?;
 
-            let audio = self.gpt_sovits.forward_ts(&[
-                &ssl_content,
-                &ref_audio_sr,
-                &ref_phone_seq,
-                &phone_seq,
-                &ref_bert_seq,
-                &bert_seq,
-            ])?;
-
+            let audio = speaker.infer(&phone_seq, &bert_seq)?;
             Ok(audio)
         })
     }

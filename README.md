@@ -30,9 +30,9 @@ Replace /path/to/libtorch with the actual path where you extracted libtorch.
 To use this library, add the following dependency to your `Cargo.toml` file:
 ```toml
 [dependencies]
-gpt_sovits_rs = "0.0.2"
+gpt_sovits_rs = "0.1.0"
 ```
-Replace "0.0.2" with the latest version of the library.
+Replace "0.1.0" with the latest version of the library.
 
 ## Usage
 
@@ -43,7 +43,6 @@ fn main() {
     env_logger::init();
 
     let gpt_config = GPTSovitsConfig::new(
-        "path/to/gpt_sovits_model.pt".to_string(),
         "path/to/ssl_model.pt".to_string(),
     ).with_cn_bert_path("path/to/bert_model.pt".to_string(), "path/to/tokenizer.json".to_string());
     // If you don't need to Chinese, you can not call `with_cn_bert_path`
@@ -51,44 +50,74 @@ fn main() {
     let device = gpt_sovits_rs::Device::cuda_if_available();
     log::info!("device: {:?}", device);
 
-    let gpt_sovits = gpt_config.build(device).unwrap();
+    let mut gpt_sovits = gpt_config.build(device).unwrap();
 
-    log::info!("init done");
-
-    let ref_text = "<Your Reference Text>";
-
-    let ref_path = "path/to/reference_voice.wav";
+    let ref_text = "Speaker1 Reference Text";
+    let ref_path = "path/to/speaker1/reference_voice.wav";
     let file = std::fs::File::open(ref_path).unwrap();
-
     let (head, ref_audio_samples) = wav_io::read_from_file(file).unwrap();
 
-    log::info!("load ref done");
+    log::info!("load ref_1 done");
 
-    let text = "<What you want to say>";
+    gpt_sovits
+        .create_speaker(
+            "speaker1",
+            "path/to/speaker1/gpt_sovits_model.pt",
+            &ref_audio_samples,
+            head.sample_rate as usize,
+            ref_text,
+        )
+        .unwrap();
+    log::info!("init speaker1 done");
 
-    let audio = gpt_sovits.infer(
-                &ref_audio_samples,
-                head.sample_rate as usize,
-                ref_text,
-                target_text).unwrap();
+    let ref_text = "Speaker2 Reference Text";
+    let ref_path = "path/to/speaker2/reference_voice.wav";
+    let file = std::fs::File::open(ref_path).unwrap();
+    let (head, ref_audio_samples) = wav_io::read_from_file(file).unwrap();
+
+    log::info!("load ref_2 done");
+
+    gpt_sovits
+        .create_speaker(
+            "speaker2",
+            "path/to/speaker2/gpt_sovits_model.pt",
+            &ref_audio_samples,
+            head.sample_rate as usize,
+            ref_text,
+        )
+        .unwrap();
+    log::info!("init speaker2 done");
+
+    let text1 = "What you want speaker1 to say";
+    let text2 = "What you want speaker2 to say";
+
+    let audio1 = gpt_sovits.infer("speaker1",text1).unwrap();
+    let audio2 = gpt_sovits.infer("speaker2",text2).unwrap();
 
     log::info!("start write file");
 
-    let output = "out.wav";
+    let output1 = "speaker1.wav";
+    let output2 = "speaker2.wav";
 
-    let audio_size = audio.size1().unwrap() as usize;
-    println!("audio size: {}", audio_size);
+    let audio1_size = audio1.size1().unwrap() as usize;
+    let audio2_size = audio1.size1().unwrap() as usize;
 
-    println!("start save audio {output}");
-    let mut samples = vec![0f32; audio_size];
-    audio.f_copy_data(&mut samples, audio_size).unwrap();
-
-    println!("start write file {output}");
-    let mut file_out = std::fs::File::create(output).unwrap();
+    // save speaker1.wav
+    let mut samples1 = vec![0f32; audio1_size];
+    audio1.f_copy_data(&mut samples1, audio1_size).unwrap();
+    let mut file_out = std::fs::File::create(output1).unwrap();
 
     let header = wav_io::new_header(32000, 16, false, true);
-    wav_io::write_to_file(&mut file_out, &header, &samples).unwrap();
-    log::info!("write file done");
+    wav_io::write_to_file(&mut file_out, &header, &samples1).unwrap();
+
+    // save speaker2.wav
+    let mut samples2 = vec![0f32; audio2_size];
+    audio1.f_copy_data(&mut samples2, audio2_size).unwrap();
+    let mut file_out = std::fs::File::create(output2).unwrap();
+
+    let header = wav_io::new_header(32000, 16, false, true);
+    wav_io::write_to_file(&mut file_out, &header, &samples2).unwrap();
+
 }
 
 ```
