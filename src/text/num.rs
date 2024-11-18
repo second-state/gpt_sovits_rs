@@ -14,16 +14,16 @@ pub mod zh {
 
     fn parse_pn(
         pair: Pair<Rule>,
-        symbols: &HashMap<String, i64>,
+        _symbols: &HashMap<String, i64>,
         builder: &mut PhoneBuilder,
     ) -> anyhow::Result<()> {
         assert_eq!(pair.as_rule(), Rule::pn);
         match pair.as_str() {
-            "+" => builder.push_zh_word(symbols, "加"),
-            "-" => builder.push_zh_word(symbols, "减"),
-            "*" | "×" => builder.push_zh_word(symbols, "乘"),
-            "/" | "÷" => builder.push_zh_word(symbols, "除以"),
-            "=" => builder.push_zh_word(symbols, "等于"),
+            "+" => builder.push_zh_word("加"),
+            "-" => builder.push_zh_word("减"),
+            "*" | "×" => builder.push_zh_word("乘"),
+            "/" | "÷" => builder.push_zh_word("除以"),
+            "=" => builder.push_zh_word("等于"),
             _ => {
                 #[cfg(debug_assertions)]
                 unreachable!("unknown: {:?} in pn", pair);
@@ -34,13 +34,13 @@ pub mod zh {
 
     fn parse_flag(
         pair: Pair<Rule>,
-        symbols: &HashMap<String, i64>,
+        _symbols: &HashMap<String, i64>,
         builder: &mut PhoneBuilder,
     ) -> anyhow::Result<()> {
         assert_eq!(pair.as_rule(), Rule::flag);
         match pair.as_str() {
-            "+" => builder.push_zh_word(symbols, "正"),
-            "-" => builder.push_zh_word(symbols, "负"),
+            "+" => builder.push_zh_word("正"),
+            "-" => builder.push_zh_word("负"),
             _ => {
                 #[cfg(debug_assertions)]
                 unreachable!("unknown: {:?} in flag", pair);
@@ -57,7 +57,7 @@ pub mod zh {
         assert_eq!(pair.as_rule(), Rule::percent);
         // percent = { (decimals|integer)~"%" }
 
-        builder.push_zh_word(symbols, "百分之");
+        builder.push_zh_word("百分之");
         let inner = pair.into_inner();
         for pair in inner {
             match pair.as_rule() {
@@ -79,7 +79,7 @@ pub mod zh {
 
     fn parse_integer(
         pair: Pair<Rule>,
-        symbols: &HashMap<String, i64>,
+        _symbols: &HashMap<String, i64>,
         builder: &mut PhoneBuilder,
         unit: bool,
     ) -> anyhow::Result<LinkedList<String>> {
@@ -137,7 +137,7 @@ pub mod zh {
         }
 
         for s in &r {
-            builder.push_zh_word(symbols, s);
+            builder.push_zh_word(s);
         }
 
         Ok(r)
@@ -182,9 +182,9 @@ pub mod zh {
         if let Some(i_part) = inner.next() {
             parse_integer(i_part, symbols, builder, true)?;
         } else {
-            builder.push_zh_word(symbols, "零");
+            builder.push_zh_word("零");
         }
-        builder.push_zh_word(symbols, "点");
+        builder.push_zh_word("点");
         parse_integer(f_part, symbols, builder, false)?;
 
         Ok(())
@@ -201,7 +201,7 @@ pub mod zh {
         let numerator = inner.next().unwrap();
         let denominator = inner.next().unwrap();
         parse_integer(denominator, symbols, builder, true)?;
-        builder.push_zh_word(symbols, "分之");
+        builder.push_zh_word("分之");
         parse_integer(numerator, symbols, builder, true)?;
 
         Ok(())
@@ -292,7 +292,7 @@ pub mod zh {
         assert_eq!(pair.as_rule(), Rule::link);
 
         match pair.as_str() {
-            "-" => builder.push_zh_word(symbols, "杠"),
+            "-" => builder.push_zh_word("杠"),
             _ => builder.push_punctuation(symbols, "…"),
         }
 
@@ -328,7 +328,7 @@ pub mod zh {
                             n
                         }
                     };
-                    builder.push_zh_word(symbols, txt);
+                    builder.push_zh_word(txt);
                 }
                 Rule::alpha => {
                     let txt = pair.as_str();
@@ -367,7 +367,7 @@ pub mod zh {
                             ""
                         }
                     };
-                    builder.push_zh_word(symbols, txt);
+                    builder.push_zh_word(txt);
                 }
                 _ => {
                     #[cfg(debug_assertions)]

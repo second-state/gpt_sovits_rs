@@ -1,46 +1,52 @@
-use std::{collections::HashMap, usize};
+use std::{collections::HashMap, sync::Arc, usize};
 
 use anyhow::Ok;
 use tch::{IValue, Tensor};
-use text::CNBertModel;
+use text::{g2pw::G2PWConverter, CNBertModel};
 
 pub mod symbols;
 pub mod text;
-
 pub use tch::Device;
 
 pub struct GPTSovitsConfig {
-    pub cn_bert_path: Option<String>,
-    pub tokenizer_path: Option<String>,
+    pub cn_setting: Option<(String, String, String)>,
     pub ssl_path: String,
 }
 
 impl GPTSovitsConfig {
     pub fn new(ssl_path: String) -> Self {
         Self {
-            cn_bert_path: None,
-            tokenizer_path: None,
+            cn_setting: None,
             ssl_path,
         }
     }
 
-    pub fn with_cn_bert_path(mut self, cn_bert_path: String, tokenizer_path: String) -> Self {
-        self.cn_bert_path = Some(cn_bert_path);
-        self.tokenizer_path = Some(tokenizer_path);
+    pub fn with_chinese(
+        mut self,
+        g2pw_path: String,
+        cn_bert_path: String,
+        tokenizer_path: String,
+    ) -> Self {
+        self.cn_setting = Some((g2pw_path, cn_bert_path, tokenizer_path));
         self
     }
 
     pub fn build(&self, device: Device) -> anyhow::Result<GPTSovits> {
-        let cn_bert = match (&self.cn_bert_path, &self.tokenizer_path) {
-            (Some(cn_bert_path), Some(tokenizer_path)) => {
+        let (cn_bert, g2pw) = match &self.cn_setting {
+            Some((g2pw_path, cn_bert_path, tokenizer_path)) => {
                 let tokenizer = tokenizers::Tokenizer::from_file(&tokenizer_path)
                     .map_err(|e| anyhow::anyhow!("load tokenizer error: {}", e))?;
+                let tokenizer = Arc::new(tokenizer);
 
                 let mut bert = tch::CModule::load_on_device(&cn_bert_path, device)?;
                 bert.set_eval();
-                CNBertModel::new(bert, tokenizer)
+
+                let cn_bert_model = CNBertModel::new(Arc::new(bert), tokenizer.clone());
+                let g2pw = G2PWConverter::new_with_device(g2pw_path, tokenizer.clone(), device)?;
+
+                (cn_bert_model, g2pw)
             }
-            _ => CNBertModel::default(),
+            _ => (CNBertModel::default(), G2PWConverter::empty()),
         };
 
         let mut ssl = tch::CModule::load_on_device(&self.ssl_path, device).unwrap();
@@ -48,6 +54,7 @@ impl GPTSovitsConfig {
 
         Ok(GPTSovits {
             zh_bert: cn_bert,
+            g2pw,
             device,
             symbols: symbols::SYMBOLS.clone(),
             ssl,
@@ -97,6 +104,7 @@ impl Speaker {
 
 pub struct GPTSovits {
     zh_bert: CNBertModel,
+    g2pw: text::g2pw::G2PWConverter,
     device: tch::Device,
     symbols: HashMap<String, i64>,
     ssl: tch::CModule,
@@ -109,6 +117,7 @@ pub struct GPTSovits {
 impl GPTSovits {
     pub fn new(
         zh_bert: CNBertModel,
+        g2pw: G2PWConverter,
         device: tch::Device,
         symbols: HashMap<String, i64>,
         ssl: tch::CModule,
@@ -116,6 +125,7 @@ impl GPTSovits {
     ) -> Self {
         Self {
             zh_bert,
+            g2pw,
             device,
             symbols,
             speakers: HashMap::new(),
