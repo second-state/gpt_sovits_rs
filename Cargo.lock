@@ -513,7 +513,7 @@ dependencies = [
 
 [[package]]
 name = "gpt_sovits_rs"
-version = "0.1.1"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "arpabet",
@@ -523,7 +523,6 @@ dependencies = [
  "log",
  "pest",
  "pest_derive",
- "pinyin",
  "regex",
  "serde",
  "serde_json",
@@ -987,12 +986,6 @@ checksum = "90fcb95eef784c2ac79119d1dd819e162b5da872ce6f3c3abe1e8ca1c082f72b"
 dependencies = [
  "siphasher",
 ]
-
-[[package]]
-name = "pinyin"
-version = "0.10.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "16f2611cd06a1ac239a0cea4521de9eb068a6ca110324ee00631aa68daa74fc0"
 
 [[package]]
 name = "pkg-config"
