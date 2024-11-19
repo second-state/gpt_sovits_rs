@@ -44,8 +44,11 @@ fn main() {
 
     let gpt_config = GPTSovitsConfig::new(
         "path/to/ssl_model.pt".to_string(),
-    ).with_cn_bert_path("path/to/bert_model.pt".to_string(), "path/to/tokenizer.json".to_string());
-    // If you don't need to Chinese, you can not call `with_cn_bert_path`
+    ).with_chinese(
+        "path/to/g2pw.pt".to_string(),
+        "path/to/bert_model.pt".to_string(), 
+        "path/to/tokenizer.json".to_string());
+    // If you don't need to Chinese, you can not call `with_chinese`
 
     let device = gpt_sovits_rs::Device::cuda_if_available();
     log::info!("device: {:?}", device);
@@ -138,3 +141,5 @@ Now you can find `gpt_sovits_model.pt`, `ssl_model.pt`, and `bert_model.pt` in t
 
 The `ssl_model.pt` and `bert_model.pt` are common model files, determined by the option `--export_common_model` for whether to export, and they are not related to the trained model. Therefore, they do not need to be exported every time. 
 If you do not wish to export, you can go to Hugging Face to [download](https://huggingface.co/L-jasmine/GPT_Sovits/tree/main) the resource.zip that I have already exported. And remove the `--export_common_model` when export model.
+
+You can download `g2pw.pt` from my Hugging Face [repo](https://huggingface.co/L-jasmine/GPT_Sovits/tree/main)
