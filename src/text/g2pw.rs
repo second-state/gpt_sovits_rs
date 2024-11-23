@@ -33,8 +33,7 @@ lazy_static::lazy_static! {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct PolyChar {
     index: usize,
-    phones: Vec<String>,
-    phones_index: Vec<usize>,
+    phones: Vec<(String, usize)>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -44,13 +43,13 @@ pub struct MonoChar {
 
 #[test]
 fn build_static_resource() {
+    use pinyin::ToPinyinMulti;
     use std::collections::{BTreeMap, HashMap};
     let bopomofo_to_pinyin_dict =
         std::fs::read_to_string("resource/g2pw/bopomofo_to_pinyin_wo_tune_dict.json").unwrap();
 
     let dict = serde_json::from_str::<HashMap<String, String>>(&bopomofo_to_pinyin_dict).unwrap();
 
-    let chars = std::fs::read_to_string("resource/g2pw/CHARS.txt").unwrap();
     let labels = std::fs::read_to_string("resource/g2pw/LABELS.txt").unwrap();
 
     let mut labels_index_map = BTreeMap::new();
@@ -80,13 +79,13 @@ fn build_static_resource() {
     let s = serde_json::to_string_pretty(&lables_list).unwrap();
     std::fs::write("resource/g2pw/dict_poly_index_list.json", s).unwrap();
 
+    let chars = std::fs::read_to_string("resource/g2pw/CHARS.txt").unwrap();
     for (i, c) in chars.lines().enumerate() {
         poly_btree.insert(
             c.to_string(),
             PolyChar {
                 index: i,
                 phones: vec![],
-                phones_index: vec![],
             },
         );
     }
@@ -115,12 +114,13 @@ fn build_static_resource() {
         let item = poly_btree.get_mut(c).unwrap();
         if let Some(ph) = dict.get(ph) {
             let phone_with_tone = format!("{}{}", ph, tone);
-            if item.phones.contains(&phone_with_tone) {
-                println!("poly_btree {c}:{} repeat", phone_with_tone);
+            let phone_index = labels_index_map[&phone_with_tone];
+            let v = (phone_with_tone, phone_index);
+            if item.phones.contains(&v) {
+                println!("poly_btree {c}:{:?} repeat", v);
                 continue;
             }
-            item.phones_index.push(labels_index_map[&phone_with_tone]);
-            item.phones.push(phone_with_tone);
+            item.phones.push(v);
         } else {
             println!("skip {c}:{} , py not found", ph);
         }
@@ -131,23 +131,97 @@ fn build_static_resource() {
         let s = std::fs::read_to_string("resource/g2pw/bert-base-chinese_s2t_dict.txt").unwrap();
         for l in s.lines() {
             let (s, t) = l.split_once("\t").unwrap();
+
+            let mut s_pinyin = vec![];
+            for multi in s.to_pinyin_multi() {
+                if let Some(multi) = multi {
+                    for pinyin in multi {
+                        let pinyin = pinyin.with_tone_num_end();
+                        let pinyin = pinyin.replace("ü", "v");
+                        if pinyin.ends_with(&['1', '2', '3', '4']) {
+                            s_pinyin.push(pinyin.to_string());
+                        } else {
+                            s_pinyin.push(format!("{}5", pinyin));
+                        }
+                    }
+                }
+            }
+            if s == "机" || s == "万" {
+                println!("{:?} {} {}", s_pinyin, s, t,);
+            }
+
+            if s_pinyin.len() == 1 {
+                mono_btree.insert(
+                    s.to_string(),
+                    MonoChar {
+                        phone: s_pinyin[0].clone(),
+                    },
+                );
+                continue;
+            }
+
             if let Some(obj) = mono_btree.get(t) {
                 mono_btree.insert(s.to_string(), obj.clone());
-            } else if let Some(obj) = poly_btree.get(t) {
-                poly_btree.insert(s.to_string(), obj.clone());
+                println!("poly_btree remove {s}");
+                poly_btree.remove(s);
+                continue;
             }
-            if mono_btree.contains_key(s) && poly_btree.contains_key(s) {
-                // 合并繁简多音字
-                let m = mono_btree.remove(s).unwrap();
-                let p = poly_btree.get_mut(s).unwrap();
-                if !p.phones.contains(&m.phone) {
-                    p.phones_index.push(labels_index_map[&m.phone]);
-                    p.phones.push(m.phone);
+            if let Some(obj) = poly_btree.get(t) {
+                println!("mono_btree remove {s}");
+                mono_btree.remove(s);
+                let mut new_obj = PolyChar {
+                    index: obj.index,
+                    phones: vec![],
+                };
+
+                for (p, i) in obj.phones.iter() {
+                    if s_pinyin.contains(&p) {
+                        new_obj.phones.push((p.clone(), *i));
+                    } else {
+                        println!("{p} {s} {t} not found in labels_index_map");
+                    }
                 }
+
+                if !new_obj.phones.is_empty() {
+                    poly_btree.insert(s.to_string(), new_obj);
+                } else {
+                    println!("insert poly_btree {s} fail");
+                    poly_btree.insert(s.to_string(), obj.clone());
+                }
+
+                continue;
             }
         }
     }
 
+    // 清理多音字
+    {
+        for (c, poly) in poly_btree.iter_mut() {
+            let mut s_pinyin = vec![];
+            for multi in c.as_str().to_pinyin_multi() {
+                if let Some(multi) = multi {
+                    for pinyin in multi {
+                        let pinyin = pinyin.with_tone_num_end();
+                        let pinyin = pinyin.replace("ü", "v");
+                        if pinyin.ends_with(&['1', '2', '3', '4']) {
+                            s_pinyin.push(pinyin.to_string());
+                        } else {
+                            s_pinyin.push(format!("{}5", pinyin));
+                        }
+                    }
+                }
+            }
+            let mut new_phones = vec![];
+            for (p, i) in &poly.phones {
+                if s_pinyin.contains(&p) {
+                    new_phones.push((p.clone(), *i));
+                }
+            }
+            if !new_phones.is_empty() {
+                poly.phones = new_phones;
+            }
+        }
+    }
     let s = serde_json::to_string_pretty(&mono_btree).unwrap();
     std::fs::write("resource/g2pw/dict_mono_chars.json", s).unwrap();
 
@@ -229,7 +303,7 @@ impl G2PWConverter {
             if let Some(mono) = DICT_MONO_CHARS.get(&c) {
                 pre_data.push(G2PWOut::Pinyin(&mono.phone));
             } else if let Some(poly) = DICT_POLY_CHARS.get(&c) {
-                pre_data.push(G2PWOut::Pinyin(&poly.phones[0]));
+                pre_data.push(G2PWOut::Pinyin(&poly.phones[0].0));
             } else {
                 pre_data.push(G2PWOut::RawChar(c));
             }
@@ -262,7 +336,7 @@ impl G2PWConverter {
                 query_id.push(i + 1);
                 chars_id.push(poly.index);
                 let mut phoneme_mask = vec![0f32; POLY_LABLES.len()];
-                for i in &poly.phones_index {
+                for (_, i) in &poly.phones {
                     phoneme_mask[*i] = 1.0;
                 }
                 phoneme_masks.push(phoneme_mask);
