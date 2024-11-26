@@ -414,6 +414,13 @@ pub fn get_phone_and_bert(gpts: &GPTSovits, text: &str) -> anyhow::Result<(Tenso
         }
     }
 
+    if phone_seq.is_empty() {
+        return Err(anyhow::anyhow!("{text} get phone_seq is empty"));
+    }
+    if bert_seq.is_empty() {
+        return Err(anyhow::anyhow!("{text} get bert_seq is empty"));
+    }
+
     let phone_seq = Tensor::cat(&phone_seq, 1).to(gpts.device);
     let bert_seq = Tensor::cat(&bert_seq, 0).to(gpts.device);
 
