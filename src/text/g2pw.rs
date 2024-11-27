@@ -41,14 +41,20 @@ pub struct MonoChar {
     phone: String,
 }
 
+// cargo test --package gpt_sovits_rs --lib -- text::g2pw::build_static_resource --exact --show-output
 #[test]
 fn build_static_resource() {
-    use pinyin::ToPinyinMulti;
     use std::collections::{BTreeMap, HashMap};
     let bopomofo_to_pinyin_dict =
         std::fs::read_to_string("resource/g2pw/bopomofo_to_pinyin_wo_tune_dict.json").unwrap();
 
-    let dict = serde_json::from_str::<HashMap<String, String>>(&bopomofo_to_pinyin_dict).unwrap();
+    let dict_ = serde_json::from_str::<HashMap<String, String>>(&bopomofo_to_pinyin_dict).unwrap();
+    let mut dict = HashMap::with_capacity(dict_.len() * 5);
+    for (k, v) in dict_ {
+        for i in 1..=5 {
+            dict.insert(format!("{}{}", k, i), format!("{}{}", v, i));
+        }
+    }
 
     let labels = std::fs::read_to_string("resource/g2pw/LABELS.txt").unwrap();
 
@@ -59,28 +65,43 @@ fn build_static_resource() {
     let mut poly_btree = BTreeMap::new();
 
     for (i, ph) in labels.lines().enumerate() {
-        let (ph, tone) = ph.split_at(ph.len() - 1);
-        let x = if let Some(ph) = dict.get(ph) {
-            let ph_with_tone = format!("{}{}", ph, tone);
+        let x = if let Some(ph_with_tone) = dict.get(ph) {
             lables_list.push(ph_with_tone.clone());
-            labels_index_map.insert(ph_with_tone, i)
+            labels_index_map.insert(ph_with_tone.clone(), i)
         } else {
             println!("{} py not found", ph);
-            let ph_with_tone = format!("{}{}", ph, tone);
-            lables_list.push(ph_with_tone.clone());
-            labels_index_map.insert(ph_with_tone, i)
+            lables_list.push(ph.to_string());
+            labels_index_map.insert(ph.to_string(), i)
         };
         if x.is_some() {
-            println!("{}{}repeat {:?}", ph, tone, x);
+            panic!("{} repeat {:?}", ph, x);
         }
     }
     let s = serde_json::to_string_pretty(&labels_index_map).unwrap();
     std::fs::write("resource/g2pw/dict_poly_index_map.json", s).unwrap();
     let s = serde_json::to_string_pretty(&lables_list).unwrap();
     std::fs::write("resource/g2pw/dict_poly_index_list.json", s).unwrap();
+    println!("#### build lables_list done ####");
+
+    let char_pinyin = std::fs::read_to_string("resource/g2pw/char_bopomofo_dict.json").unwrap();
+    let mut char_pinyin: HashMap<String, Vec<String>> = serde_json::from_str(&char_pinyin).unwrap();
+
+    let s = std::fs::read_to_string("resource/g2pw/bert-base-chinese_s2t_dict.txt").unwrap();
+    let mut s2t = HashMap::new();
+    let mut t2s = HashMap::new();
+    for l in s.lines() {
+        let (s, t) = l.split_once("\t").unwrap();
+        s2t.insert(s.to_string(), t.to_string());
+        t2s.insert(t.to_string(), s.to_string());
+        assert!(char_pinyin.contains_key(s))
+    }
 
     let chars = std::fs::read_to_string("resource/g2pw/CHARS.txt").unwrap();
     for (i, c) in chars.lines().enumerate() {
+        if s2t.contains_key(c) {
+            println!("[repeat] skip {}", c);
+            continue;
+        }
         poly_btree.insert(
             c.to_string(),
             PolyChar {
@@ -88,18 +109,29 @@ fn build_static_resource() {
                 phones: vec![],
             },
         );
+        if let Some(s) = t2s.get(c) {
+            poly_btree.insert(
+                s.to_string(),
+                PolyChar {
+                    index: i,
+                    phones: vec![],
+                },
+            );
+        }
     }
 
     let mono = std::fs::read_to_string("resource/g2pw/MONOPHONIC_CHARS.txt").unwrap();
 
     for (_, c) in mono.lines().enumerate() {
         let (c, ph) = c.split_once("\t").unwrap();
-        let len = ph.len();
-        let (ph, tone) = ph.split_at(len - 1);
+        if s2t.contains_key(c) {
+            println!("[repeat] skip {}", c);
+            continue;
+        }
         mono_btree.insert(
             c.to_string(),
             MonoChar {
-                phone: format!("{}{}", dict[ph], tone),
+                phone: ph.to_string(),
             },
         );
     }
@@ -108,117 +140,146 @@ fn build_static_resource() {
 
     for c in poly.lines() {
         let (c, ph) = c.split_once("\t").unwrap();
-
-        let (ph, tone) = ph.split_at(ph.len() - 1);
-
-        let item = poly_btree.get_mut(c).unwrap();
-        if let Some(ph) = dict.get(ph) {
-            let phone_with_tone = format!("{}{}", ph, tone);
-            let phone_index = labels_index_map[&phone_with_tone];
-            let v = (phone_with_tone, phone_index);
-            if item.phones.contains(&v) {
-                println!("poly_btree {c}:{:?} repeat", v);
-                continue;
-            }
+        if !poly_btree.contains_key(c) {
+            println!("[skip] {c} not found in poly_btree");
+            continue;
+        }
+        if s2t.contains_key(c) {
+            println!("[repeat] skip {c} because in s2t");
+            continue;
+        }
+        let item = poly_btree
+            .get_mut(c)
+            .expect(&format!("[warn] {c} not found in poly_btree"));
+        let v = (ph.to_string(), 0);
+        if !item.phones.contains(&v) {
             item.phones.push(v);
         } else {
-            println!("skip {c}:{} , py not found", ph);
+            println!("[warn] poly_btree {c}:{:?} repeat", v);
         }
-    }
-
-    // 繁体简体转换
-    {
-        let s = std::fs::read_to_string("resource/g2pw/bert-base-chinese_s2t_dict.txt").unwrap();
-        for l in s.lines() {
-            let (s, t) = l.split_once("\t").unwrap();
-
-            let mut s_pinyin = vec![];
-            for multi in s.to_pinyin_multi() {
-                if let Some(multi) = multi {
-                    for pinyin in multi {
-                        let pinyin = pinyin.with_tone_num_end();
-                        let pinyin = pinyin.replace("ü", "v");
-                        if pinyin.ends_with(&['1', '2', '3', '4']) {
-                            s_pinyin.push(pinyin.to_string());
-                        } else {
-                            s_pinyin.push(format!("{}5", pinyin));
-                        }
-                    }
-                }
-            }
-            if s == "机" || s == "万" {
-                println!("{:?} {} {}", s_pinyin, s, t,);
-            }
-
-            if s_pinyin.len() == 1 {
-                mono_btree.insert(
-                    s.to_string(),
-                    MonoChar {
-                        phone: s_pinyin[0].clone(),
-                    },
-                );
-                continue;
-            }
-
-            if let Some(obj) = mono_btree.get(t) {
-                mono_btree.insert(s.to_string(), obj.clone());
-                println!("poly_btree remove {s}");
-                poly_btree.remove(s);
-                continue;
-            }
-            if let Some(obj) = poly_btree.get(t) {
-                println!("mono_btree remove {s}");
-                mono_btree.remove(s);
-                let mut new_obj = PolyChar {
-                    index: obj.index,
-                    phones: vec![],
-                };
-
-                for (p, i) in obj.phones.iter() {
-                    if s_pinyin.contains(&p) {
-                        new_obj.phones.push((p.clone(), *i));
-                    } else {
-                        println!("{p} {s} {t} not found in labels_index_map");
-                    }
-                }
-
-                if !new_obj.phones.is_empty() {
-                    poly_btree.insert(s.to_string(), new_obj);
-                } else {
-                    println!("insert poly_btree {s} fail");
-                    poly_btree.insert(s.to_string(), obj.clone());
-                }
-
-                continue;
+        if let Some(s) = t2s.get(c) {
+            let item = poly_btree.get_mut(s).unwrap();
+            let v = (ph.to_string(), 0);
+            if !item.phones.contains(&v) {
+                item.phones.push(v);
+            } else {
+                println!("[warn] poly_btree {c}:{:?} repeat", v);
             }
         }
     }
 
+    println!("#### check char_pinyin ####");
+
+    for (c, _) in mono_btree.iter() {
+        if !char_pinyin.contains_key(c) {
+            println!("mono {} not found in char_pinyin", c);
+        }
+    }
+    for (c, _) in poly_btree.iter() {
+        if !char_pinyin.contains_key(c) {
+            println!("poly {} not found in char_pinyin", c);
+        }
+    }
+    println!("#### check char_pinyin done ####");
+
+    println!("#### reverse check char_pinyin ####");
+    for (c, phs) in char_pinyin.iter_mut() {
+        if phs.len() == 1 {
+            mono_btree.insert(
+                c.to_string(),
+                MonoChar {
+                    phone: phs[0].clone(),
+                },
+            );
+            poly_btree.remove(c);
+            continue;
+        }
+        if !mono_btree.contains_key(c) && !poly_btree.contains_key(c) {
+            println!("{} {phs:?} not found in any dict", c);
+
+            mono_btree.insert(
+                c.to_string(),
+                MonoChar {
+                    phone: phs[0].clone(),
+                },
+            );
+        }
+    }
+    println!("#### reverse check char_pinyin done ####");
+
+    println!("#### build dict by char_pinyin ####");
+
+    // let s = serde_json::to_string_pretty(&mono_btree).unwrap();
+    // std::fs::write("resource/g2pw/dict_mono_chars.tmp.json", s).unwrap();
+
+    // let s = serde_json::to_string_pretty(&poly_btree).unwrap();
+    // std::fs::write("resource/g2pw/dict_poly_chars.tmp.json", s).unwrap();
+
+    println!("#### translate mono_btree and poly_btree ####");
     // 清理多音字
     {
-        for (c, poly) in poly_btree.iter_mut() {
-            let mut s_pinyin = vec![];
-            for multi in c.as_str().to_pinyin_multi() {
-                if let Some(multi) = multi {
-                    for pinyin in multi {
-                        let pinyin = pinyin.with_tone_num_end();
-                        let pinyin = pinyin.replace("ü", "v");
-                        if pinyin.ends_with(&['1', '2', '3', '4']) {
-                            s_pinyin.push(pinyin.to_string());
+        for (c, mono) in mono_btree.iter_mut() {
+            let ph = dict
+                .get(&mono.phone)
+                .expect(&format!("{c}->{} not found in dict", mono.phone));
+            mono.phone = ph.clone();
+        }
+
+        let poly_keys = poly_btree
+            .keys()
+            .map(|x| x.clone())
+            .collect::<Vec<String>>();
+
+        for c in poly_keys {
+            let poly = poly_btree.get_mut(&c).unwrap();
+            let s_pinyin = char_pinyin
+                .get(&c)
+                .expect(&format!("{c} not found in char_pinyin"))
+                .clone();
+
+            // for (p, _) in &mut poly.phones {
+            //     if let Some(ph) = dict.get(p) {
+            //         *p = ph.clone();
+            //     } else {
+            //         println!("[skip] {c} -> {} not found in dict", p);
+            //     }
+            // }
+
+            let mut merge_phones = vec![];
+            for (p, _) in &mut poly.phones {
+                if let Some(ph) = dict.get(p) {
+                    if s_pinyin.contains(p) {
+                        if let Some(index) = labels_index_map.get(ph) {
+                            merge_phones.push((ph.clone(), *index));
                         } else {
-                            s_pinyin.push(format!("{}5", pinyin));
+                            println!("[warn] {c} -> {ph:?} not found in labels_index_map");
                         }
+                    } else {
+                        println!("[warn] {c} -> {p:?} not found in pinyin  {s_pinyin:?}");
                     }
+                    *p = ph.clone();
+                } else {
+                    println!("[warn] {c} -> {p:?} not found in dict");
                 }
             }
-            let mut new_phones = vec![];
-            for (p, i) in &poly.phones {
-                if s_pinyin.contains(&p) {
-                    new_phones.push((p.clone(), *i));
-                }
-            }
-            if !new_phones.is_empty() {
-                poly.phones = new_phones;
+
+            if merge_phones.is_empty() {
+                println!("[warn] {c} -> {s_pinyin:?} : {:?} is_empty", poly.phones);
+            } else {
+                poly.phones = merge_phones;
+            };
+
+            let phones = &poly.phones;
+
+            if phones.len() == 1 {
+                println!("[warn] {c} -> {s_pinyin:?} : {:?}  is mono", poly.phones);
+                mono_btree.insert(
+                    c.to_string(),
+                    MonoChar {
+                        phone: poly.phones[0].0.clone(),
+                    },
+                );
+                poly_btree.remove(&c);
             }
         }
     }
