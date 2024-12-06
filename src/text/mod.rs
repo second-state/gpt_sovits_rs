@@ -365,9 +365,9 @@ pub fn get_phone_and_bert(gpts: &GPTSovits, text: &str) -> anyhow::Result<(Tenso
     let mut bert_seq = Vec::new();
 
     let mut phone_builder = PhoneBuilder::new();
-    phone_builder.push_text(&gpts.jieba, &gpts.symbols, text);
+    phone_builder.push_text(&gpts.jieba, text);
     if !text.ends_with(['。', '.', '?', '？', '!', '！']) {
-        phone_builder.push_punctuation(&gpts.symbols, ".");
+        phone_builder.push_punctuation(".");
     }
 
     for s in phone_builder.sentence {
@@ -381,15 +381,16 @@ pub fn get_phone_and_bert(gpts: &GPTSovits, text: &str) -> anyhow::Result<(Tenso
                 phone_seq.push(t);
                 bert_seq.push(bert);
             }
-            Sentence::En(en) => {
+            Sentence::En(mut en) => {
                 log::trace!("en text: {:?}", en.en_text);
                 log::trace!("en phones: {:?}", en.phones);
+                en.generate_phones(gpts);
                 let (t, bert) = en.build_phone_and_bert(gpts)?;
                 phone_seq.push(t);
                 bert_seq.push(bert);
             }
             Sentence::Num(num) => {
-                for s in num.to_phone_sentence(&gpts.symbols)? {
+                for s in num.to_phone_sentence()? {
                     log::trace!("num text: {:?}", num.num_text);
                     match s {
                         Sentence::Zh(mut zh) => {
@@ -400,9 +401,10 @@ pub fn get_phone_and_bert(gpts: &GPTSovits, text: &str) -> anyhow::Result<(Tenso
                             phone_seq.push(t);
                             bert_seq.push(bert);
                         }
-                        Sentence::En(en) => {
+                        Sentence::En(mut en) => {
                             log::trace!("num en text: {:?}", en.en_text);
                             log::trace!("num en phones: {:?}", en.phones);
+                            en.generate_phones(gpts);
                             let (t, bert) = en.build_phone_and_bert(gpts)?;
                             phone_seq.push(t);
                             bert_seq.push(bert);
@@ -528,7 +530,6 @@ impl ZhSentence {
         debug_assert_eq!(pinyin.len(), self.phones.len());
 
         log::debug!("pinyin: {:?}", pinyin);
-        log::debug!("phones: {:?}", self.phones);
 
         if pinyin.len() != self.phones.len() {
             log::warn!(
@@ -545,6 +546,8 @@ impl ZhSentence {
                 }
             }
         }
+
+        log::debug!("phones: {:?}", self.phones);
 
         for p in &self.phones {
             match p {
@@ -566,7 +569,8 @@ impl ZhSentence {
     fn build_phone_and_bert(&self, gpts: &GPTSovits) -> anyhow::Result<(Tensor, Tensor)> {
         let bert = gpts
             .zh_bert
-            .get_text_bert(&self.zh_text, &self.word2ph, gpts.device)?;
+            .get_text_bert(&self.zh_text, &self.word2ph, gpts.device)
+            .map_err(|e| anyhow::anyhow!("get_text_bert error: {}", e))?;
 
         let t = Tensor::from_slice(&self.phones_ids)
             .to_device(gpts.device)
@@ -576,6 +580,11 @@ impl ZhSentence {
     }
 }
 
+lazy_static::lazy_static! {
+    static ref G2PModel:grapheme_to_phoneme::Model = grapheme_to_phoneme::Model::load_in_memory()
+    .expect("should load");
+}
+
 #[derive(Debug)]
 struct EnSentence {
     phones_ids: Vec<i64>,
@@ -583,7 +592,52 @@ struct EnSentence {
     en_text: String,
 }
 
+const SEPARATOR: &'static str = " ";
+
 impl EnSentence {
+    fn generate_phones(&mut self, gpts: &GPTSovits) {
+        log::trace!("EnSentence text: {:?}", self.en_text);
+        let symbols = &gpts.symbols;
+        for word in self.en_text.split(SEPARATOR) {
+            if word.is_empty() {
+                continue;
+            }
+
+            if let Some(s) = parse_punctuation(&word) {
+                self.phones.push(s);
+                self.phones_ids.push(get_phone_symbol(symbols, s));
+                continue;
+            }
+            if let Some(v) = dict::en_word_dict(word) {
+                for ph in v {
+                    self.phones.push(ph);
+                    self.phones_ids.push(get_phone_symbol(symbols, ph));
+                }
+            } else if let Ok(v) = G2PModel.predict_phonemes_strs(word) {
+                for ph in v {
+                    self.phones.push(ph);
+                    self.phones_ids.push(get_phone_symbol(symbols, ph));
+                }
+            } else {
+                for c in word.chars() {
+                    let mut b = [0; 4];
+                    let c = c.encode_utf8(&mut b);
+
+                    if let Ok(v) = G2PModel.predict_phonemes_strs(c) {
+                        for ph in v {
+                            self.phones.push(ph);
+                            self.phones_ids.push(get_phone_symbol(symbols, ph));
+                        }
+                    }
+                }
+            }
+
+            self.phones.push(SEPARATOR);
+            self.phones_ids.push(get_phone_symbol(symbols, SEPARATOR));
+        }
+        log::trace!("EnSentence phones: {:?}", self.phones);
+    }
+
     fn build_phone_and_bert(&self, gpts: &GPTSovits) -> anyhow::Result<(Tensor, Tensor)> {
         let t = Tensor::from_slice(&self.phones_ids)
             .to_device(gpts.device)
@@ -610,10 +664,7 @@ struct NumSentence {
 }
 
 impl NumSentence {
-    fn to_phone_sentence(
-        &self,
-        symbols: &HashMap<String, i64>,
-    ) -> anyhow::Result<LinkedList<Sentence>> {
+    fn to_phone_sentence(&self) -> anyhow::Result<LinkedList<Sentence>> {
         // match self.lang {
         //     Lang::Zh => text::num_to_zh_text(symbols, &self.num_text, last_char_is_punctuation),
         //     Lang::En => text::num_to_en_text(symbols, &self.num_text, last_char_is_punctuation),
@@ -622,8 +673,8 @@ impl NumSentence {
         let pairs = num::ExprParser::parse(num::Rule::all, &self.num_text)?;
         for pair in pairs {
             match self.lang {
-                Lang::Zh => num::zh::parse_all(pair, symbols, &mut builder)?,
-                Lang::En => num::en::parse_all(pair, symbols, &mut builder)?,
+                Lang::Zh => num::zh::parse_all(pair, &mut builder)?,
+                Lang::En => num::en::parse_all(pair, &mut builder)?,
             }
         }
 
@@ -666,8 +717,8 @@ fn parse_punctuation(p: &str) -> Option<&'static str> {
         "$" => Some("."),
         "/" => Some(","),
         "\n" => Some("."),
+        " " => Some(" "),
         // " " => Some("\u{7a7a}"),
-        " " => Some("…"),
         _ => None,
     }
 }
@@ -688,45 +739,38 @@ impl PhoneBuilder {
         }
     }
 
-    pub fn push_text(
-        &mut self,
-        jieba: &jieba_rs::Jieba,
-        symbols: &HashMap<String, i64>,
-        text: &str,
-    ) {
+    pub fn push_text(&mut self, jieba: &jieba_rs::Jieba, text: &str) {
         let r = jieba.cut(text, true);
         log::trace!("jieba cut: {:?}", r);
         for t in r {
             if is_numeric(t) {
                 self.push_num_word(t);
             } else if let Some(p) = parse_punctuation(t) {
-                self.push_punctuation(symbols, p);
+                self.push_punctuation(p);
             } else if g2pw::str_is_chinese(t) {
                 self.push_zh_word(t);
             } else if t.is_ascii() {
-                self.push_en_word(symbols, t);
+                self.push_en_word(t);
             } else {
                 log::warn!("skip word: {} in {}", t, text);
             }
         }
     }
 
-    pub fn push_punctuation(&mut self, symbols: &HashMap<String, i64>, p: &'static str) {
+    pub fn push_punctuation(&mut self, p: &'static str) {
         match self.sentence.back_mut() {
             Some(Sentence::Zh(zh)) => {
-                zh.zh_text.push_str(p);
+                zh.zh_text.push_str(if p == " " { "," } else { p });
                 zh.phones
                     .push(g2pw::G2PWOut::RawChar(p.chars().next().unwrap()));
             }
             Some(Sentence::En(en)) => {
-                en.phones.push(p);
                 en.en_text.push_str(p);
-                en.phones_ids.push(get_phone_symbol(symbols, p));
             }
             Some(Sentence::Num(_)) => {
                 self.sentence.push_back(Sentence::En(EnSentence {
-                    phones_ids: vec![get_phone_symbol(symbols, p)],
-                    phones: vec![p],
+                    phones_ids: vec![],
+                    phones: vec![],
                     en_text: p.to_string(),
                 }));
             }
@@ -736,48 +780,18 @@ impl PhoneBuilder {
         }
     }
 
-    pub fn push_en_word(&mut self, symbols: &HashMap<String, i64>, word: &str) {
-        fn get_word_phone(symbols: &HashMap<String, i64>, word: &str, en: &mut EnSentence) {
-            let arpabet = arpabet::load_cmudict();
-
-            if let Some(v) = dict::en_word_dict(word) {
-                for ph in v {
-                    en.phones.push(ph);
-                    en.phones_ids.push(get_phone_symbol(symbols, ph));
-                }
-            } else if let Some(v) = arpabet.get_polyphone_str(&word) {
-                for ph in v {
-                    en.phones.push(ph);
-                    en.phones_ids.push(get_phone_symbol(symbols, ph));
-                }
-            } else {
-                for c in word.chars() {
-                    let mut b = [0; 4];
-                    let c = c.encode_utf8(&mut b);
-
-                    if let Some(v) = arpabet.get_polyphone_str(c) {
-                        for ph in v {
-                            en.phones.push(ph);
-                            en.phones_ids.push(get_phone_symbol(symbols, ph));
-                        }
-                    }
-                }
-            }
-            en.en_text.push_str(&word);
-        }
-
+    pub fn push_en_word(&mut self, word: &str) {
         let word = word.to_ascii_lowercase();
         match self.sentence.back_mut() {
             Some(Sentence::En(en)) => {
-                get_word_phone(symbols, &word, en);
+                en.en_text.push_str(&word);
             }
             _ => {
-                let mut en = EnSentence {
+                let en = EnSentence {
                     phones_ids: vec![],
                     phones: vec![],
-                    en_text: String::new(),
+                    en_text: word.to_string(),
                 };
-                get_word_phone(symbols, &word, &mut en);
                 self.sentence.push_back(Sentence::En(en));
             }
         }
@@ -855,7 +869,7 @@ fn test_cut() {
     let jieba = Jieba::new();
 
     let mut phone_builder = PhoneBuilder::new();
-    phone_builder.push_text(&jieba, &crate::symbols::SYMBOLS, target_text);
+    phone_builder.push_text(&jieba, target_text);
 
     for s in &phone_builder.sentence {
         match s {
@@ -873,7 +887,7 @@ fn test_cut() {
             Sentence::Num(num) => {
                 println!("###num###");
                 println!("num_text: {:?}|{:?}", num.num_text, num.lang);
-                for s in num.to_phone_sentence(&crate::symbols::SYMBOLS).unwrap() {
+                for s in num.to_phone_sentence().unwrap() {
                     match s {
                         Sentence::Zh(zh) => {
                             println!("###zh###");
@@ -896,14 +910,10 @@ fn test_cut() {
 
 #[test]
 fn phone_en() {
-    let arpabet = arpabet::load_cmudict();
-
-    let r = arpabet
-        .get_polyphone_str(&"Chinese".to_ascii_lowercase())
+    let r = G2PModel
+        .predict_phonemes_strs(&"github".to_ascii_lowercase())
         .unwrap();
-    for r in r {
-        println!("r: {:?}", r);
-    }
+    println!("r: {:?}", r);
 }
 
 #[test]
