@@ -497,9 +497,15 @@ impl CNBertModel {
                 Tensor::zeros(&[len as i64, 1024], (Kind::Float, device))
             }
             CNBertModel::TchBert(bert, tokenizer) => {
-                let (text_ids, text_mask, text_token_type_ids) =
+                let (mut text_ids, mut text_mask, mut text_token_type_ids) =
                     Self::encode_text(tokenizer, text, device);
-                let text_word2ph = Tensor::from_slice(word2ph).to_device(device);
+                let mut text_word2ph = Tensor::from_slice(word2ph).to_device(device);
+
+                text_ids = text_ids.set_requires_grad(false);
+                text_mask = text_mask.set_requires_grad(false);
+                text_token_type_ids = text_token_type_ids.set_requires_grad(false);
+                text_word2ph = text_word2ph.set_requires_grad(false);
+
                 bert.forward_ts(&[&text_ids, &text_mask, &text_token_type_ids, &text_word2ph])?
                     .to_device(device)
             }

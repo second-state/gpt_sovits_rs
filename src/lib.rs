@@ -206,7 +206,9 @@ impl GPTSovits {
                 .get(speaker)
                 .ok_or_else(|| anyhow::anyhow!("speaker not found"))?;
 
-            let (phone_seq, bert_seq) = text::get_phone_and_bert(self, target_text)?;
+            let (mut phone_seq, mut bert_seq) = text::get_phone_and_bert(self, target_text)?;
+            phone_seq = phone_seq.set_requires_grad(false);
+            bert_seq = bert_seq.set_requires_grad(false);
 
             let audio = speaker.infer(&phone_seq, &bert_seq)?;
             Ok(audio)
