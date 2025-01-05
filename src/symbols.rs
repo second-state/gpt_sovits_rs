@@ -8,6 +8,7 @@ lazy_static! {
     pub static ref SYMBOLS: HashMap<String, i64> = {
         let mut symbols: HashMap<String, i64> = serde_json::from_str(SYMBOLS_V2).unwrap();
         symbols.insert(" ".to_string(), symbols["\u{7a7a}"]);
+        symbols.insert("'".to_string(), symbols["-"]);
         symbols
     };
 }

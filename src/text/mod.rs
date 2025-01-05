@@ -647,11 +647,26 @@ lazy_static::lazy_static! {
     .expect("should load");
 }
 
+#[derive(PartialEq, Eq)]
+enum EnWord {
+    Word(String),
+    Punctuation(&'static str),
+}
+
+impl Debug for EnWord {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            EnWord::Word(w) => write!(f, "\"{}\"", w),
+            EnWord::Punctuation(p) => write!(f, "\"{}\"", p),
+        }
+    }
+}
+
 #[derive(Debug)]
 struct EnSentence {
     phones_ids: Vec<i64>,
     phones: Vec<&'static str>,
-    en_text: String,
+    en_text: Vec<EnWord>,
 }
 
 const SEPARATOR: &'static str = " ";
@@ -660,42 +675,38 @@ impl EnSentence {
     fn generate_phones(&mut self, gpts: &GPTSovits) {
         log::trace!("EnSentence text: {:?}", self.en_text);
         let symbols = &gpts.symbols;
-        for word in self.en_text.split(SEPARATOR) {
-            if word.is_empty() {
-                continue;
-            }
-
-            if let Some(s) = parse_punctuation(&word) {
-                self.phones.push(s);
-                self.phones_ids.push(get_phone_symbol(symbols, s));
-                continue;
-            }
-            if let Some(v) = dict::en_word_dict(word) {
-                for ph in v {
-                    self.phones.push(ph);
-                    self.phones_ids.push(get_phone_symbol(symbols, ph));
-                }
-            } else if let Ok(v) = G2PModel.predict_phonemes_strs(word) {
-                for ph in v {
-                    self.phones.push(ph);
-                    self.phones_ids.push(get_phone_symbol(symbols, ph));
-                }
-            } else {
-                for c in word.chars() {
-                    let mut b = [0; 4];
-                    let c = c.encode_utf8(&mut b);
-
-                    if let Ok(v) = G2PModel.predict_phonemes_strs(c) {
+        for word in &self.en_text {
+            match word {
+                EnWord::Word(word) => {
+                    if let Some(v) = dict::en_word_dict(word) {
                         for ph in v {
                             self.phones.push(ph);
                             self.phones_ids.push(get_phone_symbol(symbols, ph));
                         }
+                    } else if let Ok(v) = G2PModel.predict_phonemes_strs(word) {
+                        for ph in v {
+                            self.phones.push(ph);
+                            self.phones_ids.push(get_phone_symbol(symbols, ph));
+                        }
+                    } else {
+                        for c in word.chars() {
+                            let mut b = [0; 4];
+                            let c = c.encode_utf8(&mut b);
+
+                            if let Ok(v) = G2PModel.predict_phonemes_strs(c) {
+                                for ph in v {
+                                    self.phones.push(ph);
+                                    self.phones_ids.push(get_phone_symbol(symbols, ph));
+                                }
+                            }
+                        }
                     }
                 }
+                EnWord::Punctuation(p) => {
+                    self.phones.push(p);
+                    self.phones_ids.push(get_phone_symbol(symbols, p));
+                }
             }
-
-            self.phones.push(SEPARATOR);
-            self.phones_ids.push(get_phone_symbol(symbols, SEPARATOR));
         }
         log::trace!("EnSentence phones: {:?}", self.phones);
     }
@@ -764,7 +775,8 @@ fn parse_punctuation(p: &str) -> Option<&'static str> {
         "？" | "?" => Some("."),
         "；" | ";" => Some("."),
         "：" | ":" => Some(","),
-        "‘" | "’" | "'" => Some("-"),
+        "‘" | "’" => Some("-"),
+        "'" => Some("'"),
         "“" | "”" | "\"" => Some("-"),
         "（" | "(" => Some("-"),
         "）" | ")" => Some("-"),
@@ -814,7 +826,7 @@ impl PhoneBuilder {
             } else if t.is_ascii() {
                 self.push_en_word(t);
             } else {
-                log::warn!("skip word: {} in {}", t, text);
+                log::warn!("skip word: {:?} in {}", t, text);
             }
         }
     }
@@ -827,13 +839,13 @@ impl PhoneBuilder {
                     .push(g2pw::G2PWOut::RawChar(p.chars().next().unwrap()));
             }
             Some(Sentence::En(en)) => {
-                en.en_text.push_str(p);
+                en.en_text.push(EnWord::Punctuation(p));
             }
             Some(Sentence::Num(_)) => {
                 self.sentence.push_back(Sentence::En(EnSentence {
                     phones_ids: vec![],
                     phones: vec![],
-                    en_text: p.to_string(),
+                    en_text: vec![EnWord::Punctuation(p)],
                 }));
             }
             _ => {
@@ -846,13 +858,28 @@ impl PhoneBuilder {
         let word = word.to_ascii_lowercase();
         match self.sentence.back_mut() {
             Some(Sentence::En(en)) => {
-                en.en_text.push_str(&word);
+                if en
+                    .en_text
+                    .last()
+                    .map(|w| w == &EnWord::Punctuation("'"))
+                    .unwrap_or(false)
+                {
+                    en.en_text.pop();
+                    en.en_text.last_mut().map(|w| {
+                        if let EnWord::Word(w) = w {
+                            w.push_str("'");
+                            w.push_str(&word);
+                        }
+                    });
+                } else {
+                    en.en_text.push(EnWord::Word(word));
+                }
             }
             _ => {
                 let en = EnSentence {
                     phones_ids: vec![],
                     phones: vec![],
-                    en_text: word.to_string(),
+                    en_text: vec![EnWord::Word(word)],
                 };
                 self.sentence.push_back(Sentence::En(en));
             }
@@ -971,10 +998,11 @@ fn test_cut() {
     }
 }
 
+// cargo test --package gpt_sovits_rs --lib -- text::phone_en --exact --show-output
 #[test]
 fn phone_en() {
     let r = G2PModel
-        .predict_phonemes_strs(&"github".to_ascii_lowercase())
+        .predict_phonemes_strs(&"one".to_ascii_lowercase())
         .unwrap();
     println!("r: {:?}", r);
 }
