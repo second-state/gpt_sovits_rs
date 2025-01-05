@@ -19,7 +19,16 @@ lazy_static! {
             let en_word_dict = std::fs::read_to_string(path).unwrap();
             serde_json::from_str(&en_word_dict).unwrap()
         } else {
-            HashMap::default()
+            let mut default_dist = HashMap::default();
+            default_dist.insert(
+                "the".to_string(),
+                ["TH", "EH2"].iter().map(|s| s.to_string()).collect(),
+            );
+            default_dist.insert(
+                "one".to_string(),
+                ["W", "AH1", "N"].iter().map(|s| s.to_string()).collect(),
+            );
+            default_dist
         }
     };
 }
