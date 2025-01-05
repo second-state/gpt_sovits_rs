@@ -513,7 +513,7 @@ dependencies = [
 
 [[package]]
 name = "gpt_sovits_rs"
-version = "0.2.6"
+version = "0.2.7"
 dependencies = [
  "anyhow",
  "env_logger",
