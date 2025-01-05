@@ -211,16 +211,30 @@ impl GPTSovits {
         })
     }
 
-    pub fn segment_infer(&self, speaker: &str, target_text: &str) -> anyhow::Result<Vec<Tensor>> {
+    pub fn segment_infer(
+        &self,
+        speaker: &str,
+        target_text: &str,
+        split_chunk_size: usize,
+    ) -> anyhow::Result<Tensor> {
         tch::no_grad(|| {
             let mut audios = vec![];
-            let chunks = crate::text::split_text(target_text, 50);
+            let split_chunk_size = if split_chunk_size == 0 {
+                50
+            } else {
+                split_chunk_size
+            };
+            let chunks = crate::text::split_text(target_text, split_chunk_size);
             log::debug!("segment_infer split_text result: {:#?}", chunks);
             for target_text in chunks {
                 let audio = self.infer(speaker, target_text)?;
                 audios.push(audio);
             }
-            Ok(audios)
+            if !audios.is_empty() {
+                Ok(Tensor::cat(&audios, 0))
+            } else {
+                Err(anyhow::anyhow!("no audio generated"))
+            }
         })
     }
 }

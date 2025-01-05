@@ -1,7 +1,6 @@
 use std::vec;
 
 use gpt_sovits_rs::GPTSovitsConfig;
-use tch::Tensor;
 
 fn main() {
     env_logger::init();
@@ -61,16 +60,13 @@ fn main() {
 
     let header = wav_io::new_header(32000, 16, false, true);
 
-    let audios = gpt_sovits.segment_infer("xw", &text).unwrap();
-    let audios2 = gpt_sovits.segment_infer("ht", &text).unwrap();
+    let audio = gpt_sovits.segment_infer("xw", &text, 50).unwrap();
+    let audio2 = gpt_sovits.segment_infer("ht", &text, 50).unwrap();
 
     log::info!("start write file");
 
     let output = "out.wav";
     let output2 = "out2.wav";
-
-    let audio = Tensor::cat(&audios, 0);
-    let audio2 = Tensor::cat(&audios2, 0);
 
     let audio_size = audio.size1().unwrap() as usize;
     let audio2_size = audio2.size1().unwrap() as usize;
