@@ -360,6 +360,67 @@ fn split_zh_ph_(ph: &str) -> (&str, &str) {
     }
 }
 
+#[inline]
+fn is_punctution(c: char) -> bool {
+    matches!(
+        c,
+        // '。' | '.' | '?' | '？' | '!' | '！' | ',' | '，' | ';' | '；' | '\n'
+        '。' | '.' | '?' | '？' | '!' | '！' | ';' | '；' | '\n'
+    )
+}
+
+pub fn split_text(text: &str, max_chunk_size: usize) -> Vec<&str> {
+    let is_en = text.is_ascii();
+
+    let mut r = vec![];
+    let mut start_text = text;
+
+    let mut total_count = 0;
+    let mut splite_index = 0;
+
+    for s in text.split_inclusive(|c| is_punctution(c)) {
+        let count = if is_en {
+            s.split(" ").count()
+        } else {
+            s.chars().count()
+        };
+        log::trace!(
+            "s: {:?}, count: {} total_count: {} splite_index: {}",
+            s,
+            count,
+            total_count,
+            splite_index
+        );
+        if total_count + count > max_chunk_size {
+            let t = start_text.split_at(splite_index);
+            let trim_s = t.0.trim();
+            if !trim_s.is_empty() {
+                r.push(trim_s);
+            }
+            start_text = t.1;
+            total_count = count;
+            splite_index = s.len();
+        } else if s.ends_with(['\n']) {
+            splite_index += s.len();
+            let t = start_text.split_at(splite_index);
+            let trim_s = t.0.trim();
+            if !trim_s.is_empty() {
+                r.push(trim_s);
+            }
+            start_text = t.1;
+            total_count = 0;
+            splite_index = 0;
+        } else {
+            total_count += count;
+            splite_index += s.len();
+        }
+    }
+    if !start_text.trim().is_empty() {
+        r.push(start_text.trim());
+    }
+    r
+}
+
 pub fn get_phone_and_bert(gpts: &GPTSovits, text: &str) -> anyhow::Result<(Tensor, Tensor)> {
     let mut phone_seq = Vec::new();
     let mut bert_seq = Vec::new();
@@ -497,14 +558,9 @@ impl CNBertModel {
                 Tensor::zeros(&[len as i64, 1024], (Kind::Float, device))
             }
             CNBertModel::TchBert(bert, tokenizer) => {
-                let (mut text_ids, mut text_mask, mut text_token_type_ids) =
+                let (text_ids, text_mask, text_token_type_ids) =
                     Self::encode_text(tokenizer, text, device);
-                let mut text_word2ph = Tensor::from_slice(word2ph).to_device(device);
-
-                text_ids = text_ids.set_requires_grad(false);
-                text_mask = text_mask.set_requires_grad(false);
-                text_token_type_ids = text_token_type_ids.set_requires_grad(false);
-                text_word2ph = text_word2ph.set_requires_grad(false);
+                let text_word2ph = Tensor::from_slice(word2ph).to_device(device);
 
                 bert.forward_ts(&[&text_ids, &text_mask, &text_token_type_ids, &text_word2ph])?
                     .to_device(device)
@@ -708,8 +764,8 @@ fn parse_punctuation(p: &str) -> Option<&'static str> {
         "？" | "?" => Some("."),
         "；" | ";" => Some("."),
         "：" | ":" => Some(","),
-        "‘" | "’" | "'" => Some("'"),
-        "“" | "”" | "\"" => Some("\""),
+        "‘" | "’" | "'" => Some("-"),
+        "“" | "”" | "\"" => Some("-"),
         "（" | "(" => Some("-"),
         "）" | ")" => Some("-"),
         "【" | "[" => Some("-"),
@@ -864,13 +920,14 @@ impl PhoneBuilder {
     }
 }
 
+// cargo test --package gpt_sovits_rs --lib -- text::test_cut --exact --show-output
 #[test]
 fn test_cut() {
     // 分词
     use jieba_rs::Jieba;
 
     let target_text =
-        "α-200,Good morning.我现在支持了英文和中文这两种语言。English and Chinese.I love Rust very much.我爱Rust！你知不知道1+1=多少？30%的人不知道哦.你可以问问 lisa_GPT-32 有-70+30=? 劫-98G";
+        "α-200,Good morning.我现在支持了 英文 和 中文 这两种语言。English and Chinese.I love Rust very much.我爱Rust！你知不知道1+1=多少？30%的人不知道哦.你可以问问 lisa_GPT-32 有-70+30=? 劫-98G";
 
     let jieba = Jieba::new();
 
@@ -922,17 +979,29 @@ fn phone_en() {
     println!("r: {:?}", r);
 }
 
+// cargo test --package gpt_sovits_rs --lib -- text::test_splite_text --exact --show-output
 #[test]
 fn test_splite_text() {
-    let text = "叹息声一声接着一声，木兰姑娘当门在织布。织机停下来不再作响，只听见姑娘在叹息。问姑娘在思念什么，问姑娘在惦记什么。我也没有在想什么，也没有在惦记什么。昨夜看见征兵的文书，知道君王在大规模征募兵士，那么多卷征兵文书，每卷上都有父亲的名字。父亲没有长大成人的儿子，木兰没有兄长，木兰愿意去买来马鞍和马匹，从此替父亲去出征。到各地集市买骏马，马鞍和鞍下的垫子，马嚼子和缰绳，马鞭。早上辞别父母上路，晚上宿营在黄河边，听不见父母呼唤女儿的声音，但能听到黄河汹涌奔流的声音。";
-    // Maximum number of characters in a chunk
-    let max_characters = 50;
-    // Default implementation uses character count for chunk size
-    let splitter = text_splitter::TextSplitter::new(max_characters);
+    env_logger::init();
+    let text = "叹息声一声接着一声，木兰姑娘当门在织布。织机停下来不再作响，只听见姑娘在叹息。\n问姑娘在思念什么，问姑娘在惦记什么。我也没有在想什么，也没有在惦记什么。\n昨夜看见征兵的文书，知道君王在大规模征募兵士，那么多卷征兵文书，每卷上都有父亲的名字。父亲没有长大成人的儿子，木兰没有兄长，木兰愿意去买来马鞍和马匹，从此替父亲去出征。到各地集市买骏马，马鞍和鞍下的垫子，马嚼子和缰绳，马鞭。早上辞别父母上路，晚上宿营在黄河边，听不见父母呼唤女儿的声音，但能听到黄河汹涌奔流的声音。";
+    println!("text: {:?}", text.is_ascii());
 
-    let chunks = splitter.chunks(text);
+    let chunks = split_text(text, 50);
     for chunk in chunks {
         let s = chunk.chars().count();
+        println!("chunk: {:?} {}", chunk, s);
+    }
+}
+
+// cargo test --package gpt_sovits_rs --lib -- text::test_splite_en_text --exact --show-output
+#[test]
+fn test_splite_en_text() {
+    let text = r#"his story is called "The Farmer and the Snake." Every day, a farmer went to the city to sell his flowers and farm produce and then went home after selling all his things. One day, he left home very early, so early that when he arrived at the city, the gate was still closed. So he lay down to take a nap, when he awoke he found that the storage bin containing his farm produce had become empty except that there was a gold coin inside. Although all the things in the bin had vanished, the gold was much more valuable so he was still very happy. He thought most probably someone had taken his things and left the payment there, and went home happily with the money."#;
+    println!("text: {:?}", text.is_ascii());
+
+    let chunks = split_text(text, 50);
+    for chunk in chunks {
+        let s = chunk.split(" ").count();
         println!("chunk: {:?} {}", chunk, s);
     }
 }

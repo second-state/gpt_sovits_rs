@@ -59,22 +59,10 @@ fn main() {
 
     let text = std::fs::read_to_string("./input.txt").unwrap();
 
-    let text_splitter = text_splitter::TextSplitter::new(50);
     let header = wav_io::new_header(32000, 16, false, true);
-    let mut audios = vec![];
-    let mut audios2 = vec![];
 
-    for target_text in text_splitter.chunks(&text) {
-        println!("text: {}", target_text);
-        if target_text == "。" {
-            continue;
-        }
-
-        let audio = gpt_sovits.infer("xw", target_text).unwrap();
-        audios.push(audio);
-        let audio = gpt_sovits.infer("ht", target_text).unwrap();
-        audios2.push(audio);
-    }
+    let audios = gpt_sovits.segment_infer("xw", &text).unwrap();
+    let audios2 = gpt_sovits.segment_infer("ht", &text).unwrap();
 
     log::info!("start write file");
 

@@ -32,7 +32,6 @@ impl GPTSovitsConfig {
     }
 
     pub fn build(&self, device: Device) -> anyhow::Result<GPTSovits> {
-        let _ = tch::no_grad_guard();
         let (cn_bert, g2pw) = match &self.cn_setting {
             Some((g2pw_path, cn_bert_path, tokenizer_path)) => {
                 let tokenizer = tokenizers::Tokenizer::from_file(&tokenizer_path)
@@ -206,12 +205,22 @@ impl GPTSovits {
                 .get(speaker)
                 .ok_or_else(|| anyhow::anyhow!("speaker not found"))?;
 
-            let (mut phone_seq, mut bert_seq) = text::get_phone_and_bert(self, target_text)?;
-            phone_seq = phone_seq.set_requires_grad(false);
-            bert_seq = bert_seq.set_requires_grad(false);
-
+            let (phone_seq, bert_seq) = text::get_phone_and_bert(self, target_text)?;
             let audio = speaker.infer(&phone_seq, &bert_seq)?;
             Ok(audio)
+        })
+    }
+
+    pub fn segment_infer(&self, speaker: &str, target_text: &str) -> anyhow::Result<Vec<Tensor>> {
+        tch::no_grad(|| {
+            let mut audios = vec![];
+            let chunks = crate::text::split_text(target_text, 50);
+            log::debug!("segment_infer split_text result: {:#?}", chunks);
+            for target_text in chunks {
+                let audio = self.infer(speaker, target_text)?;
+                audios.push(audio);
+            }
+            Ok(audios)
         })
     }
 }
