@@ -475,9 +475,19 @@ pub mod en {
     fn parse_integer(
         pair: Pair<Rule>,
         builder: &mut PhoneBuilder,
-        _unit: bool,
+        unit: bool,
     ) -> anyhow::Result<()> {
         assert_eq!(pair.as_rule(), Rule::integer);
+        if unit {
+            if let Ok(r) = num2en::str_to_words(pair.as_str()) {
+                r.split(" ").for_each(|s| {
+                    builder.push_en_word(s);
+                    builder.push_punctuation(SEPARATOR);
+                });
+                return Ok(());
+            }
+        }
+
         let inner = pair.into_inner();
         for pair in inner {
             let txt = match pair.as_str() {
@@ -528,6 +538,13 @@ pub mod en {
 
     fn parse_decimals(pair: Pair<Rule>, builder: &mut PhoneBuilder) -> anyhow::Result<()> {
         assert_eq!(pair.as_rule(), Rule::decimals);
+        if let Ok(r) = num2en::str_to_words(pair.as_str()) {
+            r.split(&[' ', '-']).for_each(|s| {
+                builder.push_en_word(s);
+                builder.push_punctuation(SEPARATOR);
+            });
+            return Ok(());
+        }
 
         let mut inner = pair.into_inner().rev();
         let f_part = inner.next().unwrap();
@@ -551,10 +568,10 @@ pub mod en {
         let mut inner = pair.into_inner();
         let numerator = inner.next().unwrap();
         let denominator = inner.next().unwrap();
-        parse_integer(denominator, builder, true)?;
+        parse_integer(numerator, builder, true)?;
         builder.push_en_word("over");
         builder.push_punctuation(SEPARATOR);
-        parse_integer(numerator, builder, true)?;
+        parse_integer(denominator, builder, true)?;
 
         Ok(())
     }
