@@ -28,6 +28,13 @@ lazy_static! {
                 "one".to_string(),
                 ["W", "AH1", "N"].iter().map(|s| s.to_string()).collect(),
             );
+            default_dist.insert(
+                "nineteen".to_string(),
+                ["N", "AY1", "N", "T", "IY", "N"]
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect(),
+            );
             default_dist
         }
     };

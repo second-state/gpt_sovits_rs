@@ -480,7 +480,7 @@ pub mod en {
         assert_eq!(pair.as_rule(), Rule::integer);
         if unit {
             if let Ok(r) = num2en::str_to_words(pair.as_str()) {
-                r.split(" ").for_each(|s| {
+                r.split(&[' ', '-']).for_each(|s| {
                     builder.push_en_word(s);
                     builder.push_punctuation(SEPARATOR);
                 });
