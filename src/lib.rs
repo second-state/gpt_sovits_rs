@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc, usize};
+use std::{collections::HashMap, str::FromStr, sync::Arc, usize};
 
 use anyhow::Ok;
 use tch::{IValue, Tensor};
@@ -9,7 +9,7 @@ pub mod text;
 pub use tch::Device;
 
 pub struct GPTSovitsConfig {
-    pub cn_setting: Option<(String, String, String)>,
+    pub cn_setting: Option<(String, String)>,
     pub ssl_path: String,
 }
 
@@ -21,20 +21,15 @@ impl GPTSovitsConfig {
         }
     }
 
-    pub fn with_chinese(
-        mut self,
-        g2pw_path: String,
-        cn_bert_path: String,
-        tokenizer_path: String,
-    ) -> Self {
-        self.cn_setting = Some((g2pw_path, cn_bert_path, tokenizer_path));
+    pub fn with_chinese(mut self, g2pw_path: String, cn_bert_path: String) -> Self {
+        self.cn_setting = Some((g2pw_path, cn_bert_path));
         self
     }
 
     pub fn build(&self, device: Device) -> anyhow::Result<GPTSovits> {
         let (cn_bert, g2pw) = match &self.cn_setting {
-            Some((g2pw_path, cn_bert_path, tokenizer_path)) => {
-                let tokenizer = tokenizers::Tokenizer::from_file(&tokenizer_path)
+            Some((g2pw_path, cn_bert_path)) => {
+                let tokenizer = tokenizers::Tokenizer::from_str(text::g2pw::G2PW_TOKENIZER)
                     .map_err(|e| anyhow::anyhow!("load tokenizer error: {}", e))?;
                 let tokenizer = Arc::new(tokenizer);
 
@@ -55,6 +50,7 @@ impl GPTSovitsConfig {
         Ok(GPTSovits {
             zh_bert: cn_bert,
             g2pw,
+            g2p_en: text::g2p_en::G2PEnConverter::new(),
             device,
             symbols: symbols::SYMBOLS.clone(),
             ssl,
@@ -105,6 +101,7 @@ impl Speaker {
 pub struct GPTSovits {
     zh_bert: CNBertModel,
     g2pw: text::g2pw::G2PWConverter,
+    g2p_en: text::g2p_en::G2PEnConverter,
     device: tch::Device,
     symbols: HashMap<String, i64>,
     ssl: tch::CModule,
@@ -126,6 +123,7 @@ impl GPTSovits {
         Self {
             zh_bert,
             g2pw,
+            g2p_en: text::g2p_en::G2PEnConverter::new(),
             device,
             symbols,
             speakers: HashMap::new(),

@@ -1,4 +1,5 @@
 use std::{
+    borrow::Cow,
     collections::{HashMap, LinkedList},
     fmt::Debug,
     sync::Arc,
@@ -10,6 +11,7 @@ use tokenizers::Tokenizer;
 
 use crate::GPTSovits;
 
+pub mod g2p_en;
 pub mod g2pw;
 
 pub mod dict;
@@ -642,11 +644,6 @@ impl ZhSentence {
     }
 }
 
-lazy_static::lazy_static! {
-    static ref G2PModel:grapheme_to_phoneme::Model = grapheme_to_phoneme::Model::load_in_memory()
-    .expect("should load");
-}
-
 #[derive(PartialEq, Eq)]
 enum EnWord {
     Word(String),
@@ -665,7 +662,7 @@ impl Debug for EnWord {
 #[derive(Debug)]
 struct EnSentence {
     phones_ids: Vec<i64>,
-    phones: Vec<&'static str>,
+    phones: Vec<Cow<'static, str>>,
     en_text: Vec<EnWord>,
 }
 
@@ -680,12 +677,12 @@ impl EnSentence {
                 EnWord::Word(word) => {
                     if let Some(v) = dict::en_word_dict(word) {
                         for ph in v {
-                            self.phones.push(ph);
+                            self.phones.push(Cow::Borrowed(ph));
                             self.phones_ids.push(get_phone_symbol(symbols, ph));
                         }
-                    } else if let Ok(v) = G2PModel.predict_phonemes_strs(word) {
-                        for ph in v {
-                            self.phones.push(ph);
+                    } else if let Ok(v) = gpts.g2p_en.get_phoneme(&word) {
+                        for ph in v.split_ascii_whitespace() {
+                            self.phones.push(Cow::Owned(ph.to_string()));
                             self.phones_ids.push(get_phone_symbol(symbols, ph));
                         }
                     } else {
@@ -693,9 +690,9 @@ impl EnSentence {
                             let mut b = [0; 4];
                             let c = c.encode_utf8(&mut b);
 
-                            if let Ok(v) = G2PModel.predict_phonemes_strs(c) {
-                                for ph in v {
-                                    self.phones.push(ph);
+                            if let Ok(v) = gpts.g2p_en.get_phoneme(&c) {
+                                for ph in v.split_ascii_whitespace() {
+                                    self.phones.push(Cow::Owned(ph.to_string()));
                                     self.phones_ids.push(get_phone_symbol(symbols, ph));
                                 }
                             }
@@ -703,7 +700,7 @@ impl EnSentence {
                     }
                 }
                 EnWord::Punctuation(p) => {
-                    self.phones.push(p);
+                    self.phones.push(Cow::Borrowed(p));
                     self.phones_ids.push(get_phone_symbol(symbols, p));
                 }
             }
@@ -996,15 +993,6 @@ fn test_cut() {
             }
         }
     }
-}
-
-// cargo test --package gpt_sovits_rs --lib -- text::phone_en --exact --show-output
-#[test]
-fn phone_en() {
-    let r = G2PModel
-        .predict_phonemes_strs(&"one".to_ascii_lowercase())
-        .unwrap();
-    println!("r: {:?}", r);
 }
 
 // cargo test --package gpt_sovits_rs --lib -- text::test_splite_text --exact --show-output
