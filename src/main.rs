@@ -6,11 +6,14 @@ fn main() {
     env_logger::init();
 
     // "../python/GPT-SoVITS/onnx/xww/gpt_sovits_model.pt".to_string(),
-    let gpt_config = GPTSovitsConfig::new("../python/GPT-SoVITS/onnx/xww/ssl_model.pt".to_string())
-        .with_chinese(
-            "../python/g2pW/onnx/g2pw.pt".to_string(),
-            "../python/GPT-SoVITS/onnx/bert_model.pt".to_string(),
-        );
+    let gpt_config = GPTSovitsConfig::new(
+        "../python/GPT-SoVITS/onnx/xww/ssl_model.pt".to_string(),
+        "./resource/mini-bart-g2p.pt".to_string(),
+    )
+    .with_chinese(
+        "../python/g2pW/onnx/g2pw.pt".to_string(),
+        "../python/GPT-SoVITS/onnx/bert_model.pt".to_string(),
+    );
 
     let device = gpt_sovits_rs::Device::cuda_if_available();
     log::info!("device: {:?}", device);

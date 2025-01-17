@@ -1,10 +1,8 @@
 // model from cisco-ai/mini-bart-g2p
 
-use std::{io::BufReader, str::FromStr, sync::Arc};
+use std::{str::FromStr, sync::Arc};
 
 static MINI_BART_G2P_TOKENIZER: &str = include_str!("../../resource/tokenizer.mini-bart-g2p.json");
-
-static MINI_BART_G2P_MODEL: &[u8] = include_bytes!("../../resource/mini-bart-g2p.pt");
 
 static DECODER_START_TOKEN_ID: u32 = 2;
 
@@ -24,19 +22,18 @@ pub struct G2PEnConverter {
 }
 
 impl G2PEnConverter {
-    pub fn new() -> Self {
+    pub fn new(model_path: &str) -> Self {
         let device = crate::Device::Cpu;
-        Self::new_with_device(device)
+        Self::new_with_device(model_path, device)
     }
 
-    fn new_with_device(device: crate::Device) -> Self {
+    fn new_with_device(model_path: &str, device: crate::Device) -> Self {
         let tokenizer = tokenizers::Tokenizer::from_str(MINI_BART_G2P_TOKENIZER)
             .map_err(|e| anyhow::anyhow!("load g2p_en tokenizer error: {}", e))
             .unwrap();
         let tokenizer = Arc::new(tokenizer);
 
-        let mut reader = BufReader::new(MINI_BART_G2P_MODEL);
-        let mut model = tch::CModule::load_data_on_device(&mut reader, device)
+        let mut model = tch::CModule::load_on_device(model_path, device)
             .map_err(|e| anyhow::anyhow!("load g2p_en model error: {}", e))
             .unwrap();
         model.set_eval();
@@ -92,7 +89,7 @@ impl G2PEnConverter {
 // cargo test --package gpt_sovits_rs --lib -- text::g2p_en::test_g2p_en_converter --exact --show-output
 #[test]
 fn test_g2p_en_converter() {
-    let g2p_en = G2PEnConverter::new();
+    let g2p_en = G2PEnConverter::new("./resource/mini-bart-g2p.pt");
     let phoneme = g2p_en.get_phoneme("world").unwrap();
     println!("{}", phoneme);
 }
