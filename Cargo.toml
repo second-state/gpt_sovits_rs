@@ -7,6 +7,8 @@ license = "MIT"
 repository = "https://github.com/second-state/gpt_sovits_rs"
 authors = ["csh <458761603@qq.com>"]
 
+exclude = ["resource/mini-bart-g2p.pt"]
+
 [dependencies]
 anyhow = "1.0.87"
 # ort = { version = "2.0.0-rc.8" }
