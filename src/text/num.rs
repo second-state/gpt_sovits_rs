@@ -69,10 +69,10 @@ pub mod zh {
         pair: Pair<Rule>,
         builder: &mut PhoneBuilder,
         unit: bool,
-    ) -> anyhow::Result<LinkedList<String>> {
+    ) -> anyhow::Result<LinkedList<(&'static str, &'static str)>> {
         assert_eq!(pair.as_rule(), Rule::integer);
 
-        let mut r: LinkedList<String> = LinkedList::new();
+        let mut r: LinkedList<(&str, &str)> = LinkedList::new();
 
         let inner = pair.into_inner().rev();
         let mut n = 0;
@@ -102,29 +102,34 @@ pub mod zh {
                 BASE_UNITS[(n / 4) % 4]
             };
 
-            if unit {
-                let last_is_zero = r
-                    .front()
-                    .map(|s| s == "零" || BASE_UNITS.contains(&s.as_str()))
-                    .unwrap_or(true);
-
-                if txt != "零" {
-                    r.push_front(format!("{}{}", txt, u));
-                } else {
-                    if n % 4 == 0 {
-                        r.push_front(BASE_UNITS[(n / 4) % 4].to_string())
-                    } else if !last_is_zero {
-                        r.push_front(format!("{}", txt));
-                    }
-                }
-            } else {
-                r.push_front(format!("{}", txt));
-            }
+            r.push_front((txt, u));
             n += 1;
         }
 
-        for s in &r {
-            builder.push_zh_word(s);
+        if r.iter().all(|(s, _)| s == &"零") {
+            builder.push_zh_word("零");
+            return Ok(r);
+        }
+
+        if unit {
+            let mut last_is_zero = true;
+            for (s, u) in &r {
+                if last_is_zero && s == &"零" {
+                    continue;
+                }
+                if s == &"零" {
+                    builder.push_zh_word(s);
+                    last_is_zero = true;
+                } else {
+                    builder.push_zh_word(s);
+                    builder.push_zh_word(u);
+                    last_is_zero = false;
+                }
+            }
+        } else {
+            for (s, _) in &r {
+                builder.push_zh_word(s);
+            }
         }
 
         Ok(r)
@@ -134,12 +139,21 @@ pub mod zh {
     fn test_parse_integer() {
         let mut builder = PhoneBuilder::new();
 
-        let mut p =
-            ExprParser::parse(Rule::integer, "034056009009040").unwrap_or_else(|e| panic!("{}", e));
+        let mut p = ExprParser::parse(Rule::integer, "0").unwrap_or_else(|e| panic!("{}", e));
         let p = p.next().unwrap();
         let r = parse_integer(p, &mut builder, true).unwrap();
         for s in r {
-            println!("{}", s);
+            println!("{:?}", s);
+        }
+
+        println!("{:?}", builder.sentence.back().unwrap());
+
+        let mut p =
+            ExprParser::parse(Rule::integer, "0780110001").unwrap_or_else(|e| panic!("{}", e));
+        let p = p.next().unwrap();
+        let r = parse_integer(p, &mut builder, true).unwrap();
+        for s in r {
+            println!("{:?}", s);
         }
 
         println!("{:?}", builder.sentence.back().unwrap());
@@ -151,7 +165,7 @@ pub mod zh {
         let p = p.next().unwrap();
         let r = parse_integer(p, &mut builder, false).unwrap();
         for s in r {
-            println!("{}", s);
+            println!("{:?}", s);
         }
 
         println!("{:?}", builder.sentence.back().unwrap());
@@ -217,11 +231,12 @@ pub mod zh {
 
         let inner = pair.into_inner();
         for pair in inner {
+            log::debug!("{:?}", pair);
             match pair.as_rule() {
                 Rule::num => parse_num(pair, builder)?,
                 Rule::pn => parse_pn(pair, builder)?,
                 Rule::word => {
-                    println!("word: {:?}", pair.as_str());
+                    log::warn!("word: {:?}", pair.as_str());
                 }
                 _ => {
                     #[cfg(debug_assertions)]
