@@ -440,17 +440,39 @@ pub fn get_phone_and_bert(gpts: &GPTSovits, text: &str) -> anyhow::Result<(Tenso
                 log::trace!("zh phones: {:?}", zh.phones);
 
                 zh.generate_pinyin(gpts);
-                let (t, bert) = zh.build_phone_and_bert(gpts)?;
-                phone_seq.push(t);
-                bert_seq.push(bert);
+                match zh.build_phone_and_bert(gpts) {
+                    Ok((t, bert)) => {
+                        phone_seq.push(t);
+                        bert_seq.push(bert);
+                    }
+                    Err(e) => {
+                        if cfg!(debug_assertions) {
+                            return Err(e);
+                        } else {
+                            log::warn!("get a error, skip: {}", zh.zh_text);
+                            log::warn!("zh build_phone_and_bert error: {}", e);
+                        }
+                    }
+                };
             }
             Sentence::En(mut en) => {
                 log::trace!("en text: {:?}", en.en_text);
                 log::trace!("en phones: {:?}", en.phones);
                 en.generate_phones(gpts);
-                let (t, bert) = en.build_phone_and_bert(gpts)?;
-                phone_seq.push(t);
-                bert_seq.push(bert);
+                match en.build_phone_and_bert(gpts) {
+                    Ok((t, bert)) => {
+                        phone_seq.push(t);
+                        bert_seq.push(bert);
+                    }
+                    Err(e) => {
+                        if cfg!(debug_assertions) {
+                            return Err(e);
+                        } else {
+                            log::warn!("get a error, skip: {:?}", en.en_text);
+                            log::warn!("zh build_phone_and_bert error: {}", e);
+                        }
+                    }
+                };
             }
             Sentence::Num(num) => {
                 for s in num.to_phone_sentence()? {
@@ -460,17 +482,39 @@ pub fn get_phone_and_bert(gpts: &GPTSovits, text: &str) -> anyhow::Result<(Tenso
                             log::trace!("num zh text: {:?}", zh.zh_text);
                             log::trace!("num zh phones: {:?}", zh.phones);
                             zh.generate_pinyin(gpts);
-                            let (t, bert) = zh.build_phone_and_bert(gpts)?;
-                            phone_seq.push(t);
-                            bert_seq.push(bert);
+                            match zh.build_phone_and_bert(gpts) {
+                                Ok((t, bert)) => {
+                                    phone_seq.push(t);
+                                    bert_seq.push(bert);
+                                }
+                                Err(e) => {
+                                    if cfg!(debug_assertions) {
+                                        return Err(e);
+                                    } else {
+                                        log::warn!("get a error, skip: {}", zh.zh_text);
+                                        log::warn!("zh build_phone_and_bert error: {}", e);
+                                    }
+                                }
+                            };
                         }
                         Sentence::En(mut en) => {
                             log::trace!("num en text: {:?}", en.en_text);
                             log::trace!("num en phones: {:?}", en.phones);
                             en.generate_phones(gpts);
-                            let (t, bert) = en.build_phone_and_bert(gpts)?;
-                            phone_seq.push(t);
-                            bert_seq.push(bert);
+                            match en.build_phone_and_bert(gpts) {
+                                Ok((t, bert)) => {
+                                    phone_seq.push(t);
+                                    bert_seq.push(bert);
+                                }
+                                Err(e) => {
+                                    if cfg!(debug_assertions) {
+                                        return Err(e);
+                                    } else {
+                                        log::warn!("get a error, skip: {:?}", en.en_text);
+                                        log::warn!("zh build_phone_and_bert error: {}", e);
+                                    }
+                                }
+                            };
                         }
                         Sentence::Num(_) => unreachable!(),
                     }
