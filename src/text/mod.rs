@@ -826,7 +826,7 @@ fn parse_punctuation(p: &str) -> Option<&'static str> {
         "《" | "<" => Some("-"),
         "》" | ">" => Some("-"),
         "—" => Some("-"),
-        "～" | "~" | "…" | "_" => Some("…"),
+        "～" | "~" | "…" | "_" | "..." => Some("…"),
         "·" => Some(","),
         "、" => Some(","),
         "$" => Some("."),
