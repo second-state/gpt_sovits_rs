@@ -724,7 +724,10 @@ impl EnSentence {
                             self.phones.push(Cow::Borrowed(ph));
                             self.phones_ids.push(get_phone_symbol(symbols, ph));
                         }
-                    } else if let Ok(v) = gpts.g2p_en.get_phoneme(&word) {
+                    } else if let (false, Ok(v)) = (
+                        word.chars().all(char::is_uppercase),
+                        gpts.g2p_en.get_phoneme(&word),
+                    ) {
                         for ph in v.split_ascii_whitespace() {
                             self.phones.push(Cow::Owned(ph.to_string()));
                             self.phones_ids.push(get_phone_symbol(symbols, ph));
@@ -896,7 +899,7 @@ impl PhoneBuilder {
     }
 
     pub fn push_en_word(&mut self, word: &str) {
-        let word = word.to_ascii_lowercase();
+        let word = word.to_string();
         match self.sentence.back_mut() {
             Some(Sentence::En(en)) => {
                 if en
