@@ -12,6 +12,7 @@ use tokenizers::Tokenizer;
 use crate::GPTSovits;
 
 pub mod g2p_en;
+pub mod g2p_jp;
 pub mod g2pw;
 
 pub mod dict;
@@ -433,95 +434,77 @@ pub fn get_phone_and_bert(gpts: &GPTSovits, text: &str) -> anyhow::Result<(Tenso
         phone_builder.push_punctuation(".");
     }
 
-    for s in phone_builder.sentence {
-        match s {
-            Sentence::Zh(mut zh) => {
-                log::trace!("zh text: {:?}", zh.zh_text);
-                log::trace!("zh phones: {:?}", zh.phones);
+    fn helper<I: IntoIterator<Item = Sentence>>(
+        mut i: I,
+        gpts: &GPTSovits,
+        phone_seq: &mut Vec<Tensor>,
+        bert_seq: &mut Vec<Tensor>,
+    ) -> anyhow::Result<()> {
+        for s in i {
+            match s {
+                Sentence::Zh(mut zh) => {
+                    log::trace!("zh text: {:?}", zh.zh_text);
+                    log::trace!("zh phones: {:?}", zh.phones);
 
-                zh.generate_pinyin(gpts);
-                match zh.build_phone_and_bert(gpts) {
-                    Ok((t, bert)) => {
-                        phone_seq.push(t);
-                        bert_seq.push(bert);
-                    }
-                    Err(e) => {
-                        if cfg!(debug_assertions) {
-                            return Err(e);
-                        } else {
-                            log::warn!("get a error, skip: {}", zh.zh_text);
-                            log::warn!("zh build_phone_and_bert error: {}", e);
+                    zh.generate_pinyin(gpts);
+                    match zh.build_phone_and_bert(gpts) {
+                        Ok((t, bert)) => {
+                            phone_seq.push(t);
+                            bert_seq.push(bert);
                         }
-                    }
-                };
-            }
-            Sentence::En(mut en) => {
-                log::trace!("en text: {:?}", en.en_text);
-                log::trace!("en phones: {:?}", en.phones);
-                en.generate_phones(gpts);
-                match en.build_phone_and_bert(gpts) {
-                    Ok((t, bert)) => {
-                        phone_seq.push(t);
-                        bert_seq.push(bert);
-                    }
-                    Err(e) => {
-                        if cfg!(debug_assertions) {
-                            return Err(e);
-                        } else {
-                            log::warn!("get a error, skip: {:?}", en.en_text);
-                            log::warn!("zh build_phone_and_bert error: {}", e);
+                        Err(e) => {
+                            if cfg!(debug_assertions) {
+                                return Err(e);
+                            } else {
+                                log::warn!("get a error, skip: {}", zh.zh_text);
+                                log::warn!("zh build_phone_and_bert error: {}", e);
+                            }
                         }
-                    }
-                };
-            }
-            Sentence::Num(num) => {
-                for s in num.to_phone_sentence()? {
-                    log::trace!("num text: {:?}", num.num_text);
-                    match s {
-                        Sentence::Zh(mut zh) => {
-                            log::trace!("num zh text: {:?}", zh.zh_text);
-                            log::trace!("num zh phones: {:?}", zh.phones);
-                            zh.generate_pinyin(gpts);
-                            match zh.build_phone_and_bert(gpts) {
-                                Ok((t, bert)) => {
-                                    phone_seq.push(t);
-                                    bert_seq.push(bert);
-                                }
-                                Err(e) => {
-                                    if cfg!(debug_assertions) {
-                                        return Err(e);
-                                    } else {
-                                        log::warn!("get a error, skip: {}", zh.zh_text);
-                                        log::warn!("zh build_phone_and_bert error: {}", e);
-                                    }
-                                }
-                            };
+                    };
+                }
+                Sentence::En(mut en) => {
+                    log::trace!("en text: {:?}", en.en_text);
+                    log::trace!("en phones: {:?}", en.phones);
+                    en.generate_phones(gpts);
+                    match en.build_phone_and_bert(gpts) {
+                        Ok((t, bert)) => {
+                            phone_seq.push(t);
+                            bert_seq.push(bert);
                         }
-                        Sentence::En(mut en) => {
-                            log::trace!("num en text: {:?}", en.en_text);
-                            log::trace!("num en phones: {:?}", en.phones);
-                            en.generate_phones(gpts);
-                            match en.build_phone_and_bert(gpts) {
-                                Ok((t, bert)) => {
-                                    phone_seq.push(t);
-                                    bert_seq.push(bert);
-                                }
-                                Err(e) => {
-                                    if cfg!(debug_assertions) {
-                                        return Err(e);
-                                    } else {
-                                        log::warn!("get a error, skip: {:?}", en.en_text);
-                                        log::warn!("zh build_phone_and_bert error: {}", e);
-                                    }
-                                }
-                            };
+                        Err(e) => {
+                            if cfg!(debug_assertions) {
+                                return Err(e);
+                            } else {
+                                log::warn!("get a error, skip: {:?}", en.en_text);
+                                log::warn!("zh build_phone_and_bert error: {}", e);
+                            }
                         }
-                        Sentence::Num(_) => unreachable!(),
+                    };
+                }
+                Sentence::Jp(jp) => {
+                    log::trace!("jp text: {:?}", jp.text);
+                    match jp.build_phone_and_bert(gpts) {
+                        Ok((t, bert)) => {
+                            phone_seq.push(t);
+                            bert_seq.push(bert);
+                        }
+                        Err(e) => {
+                            if cfg!(debug_assertions) {
+                                return Err(e);
+                            } else {
+                                log::warn!("get a error, skip: {:?}", jp.text);
+                                log::warn!("jp build_phone_and_bert error: {}", e);
+                            }
+                        }
                     }
                 }
+                Sentence::Num(num) => helper(num.to_phone_sentence()?, gpts, phone_seq, bert_seq)?,
             }
         }
+        Ok(())
     }
+
+    helper(phone_builder.sentence, gpts, &mut phone_seq, &mut bert_seq)?;
 
     if phone_seq.is_empty() {
         return Err(anyhow::anyhow!("{text} get phone_seq is empty"));
@@ -532,6 +515,12 @@ pub fn get_phone_and_bert(gpts: &GPTSovits, text: &str) -> anyhow::Result<(Tenso
 
     let phone_seq = Tensor::cat(&phone_seq, 1).to(gpts.device);
     let bert_seq = Tensor::cat(&bert_seq, 0).to(gpts.device);
+
+    log::debug!(
+        "phone_seq: {:?}",
+        Vec::<i64>::try_from(phone_seq.shallow_clone().reshape(vec![-1])).unwrap()
+    );
+    log::debug!("bert_seq: {:?}", bert_seq);
 
     Ok((phone_seq, bert_seq))
 }
@@ -768,6 +757,28 @@ impl EnSentence {
     }
 }
 
+#[derive(Debug)]
+struct JpSentence {
+    text: String,
+}
+
+impl JpSentence {
+    fn build_phone_and_bert(&self, gpts: &GPTSovits) -> anyhow::Result<(Tensor, Tensor)> {
+        let phones = gpts.g2p_jp.g2p(self.text.as_str());
+        log::trace!("JpSentence phones: {:?}", phones);
+        let symbols = &gpts.symbols;
+        let phone_ids = phones
+            .into_iter()
+            .map(|v| get_phone_symbol(symbols, v.as_str()))
+            .collect::<Vec<_>>();
+        let t = Tensor::from_slice(&phone_ids)
+            .to_device(gpts.device)
+            .unsqueeze(0);
+        let bert = Tensor::zeros(&[phone_ids.len() as i64, 1024], (Kind::Float, gpts.device));
+        Ok((t, bert))
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 enum Lang {
     Zh,
@@ -803,6 +814,7 @@ impl NumSentence {
 enum Sentence {
     Zh(ZhSentence),
     En(EnSentence),
+    Jp(JpSentence),
     Num(NumSentence),
 }
 
@@ -850,6 +862,13 @@ fn is_numeric(p: &str) -> bool {
         ])
 }
 
+fn is_jp_kana(p: &str) -> bool {
+    p.chars().all(|v| {
+        let code = v as u32;
+        (0x3040..=0x30FF).contains(&code) || code == 0x3005 // 々
+    })
+}
+
 impl PhoneBuilder {
     pub fn new() -> Self {
         Self {
@@ -859,7 +878,7 @@ impl PhoneBuilder {
 
     pub fn push_text(&mut self, jieba: &jieba_rs::Jieba, text: &str) {
         let r = jieba.cut(text, true);
-        log::trace!("jieba cut: {:?}", r);
+        log::info!("jieba cut: {:?}", r);
         for t in r {
             if is_numeric(t) {
                 self.push_num_word(t);
@@ -869,6 +888,8 @@ impl PhoneBuilder {
                 self.push_zh_word(t);
             } else if t.is_ascii() {
                 self.push_en_word(t);
+            } else if is_jp_kana(t) {
+                self.push_jp_word(t);
             } else {
                 log::warn!("skip word: {:?} in {}", t, text);
             }
@@ -962,6 +983,20 @@ impl PhoneBuilder {
                 self.sentence.push_back(Sentence::Zh(zh));
             }
         };
+    }
+
+    fn push_jp_word(&mut self, word: &str) {
+        match self.sentence.back_mut() {
+            Some(Sentence::Jp(jp)) => {
+                jp.text.push_str(word);
+            }
+            _ => {
+                let mut jp = JpSentence {
+                    text: word.to_owned(),
+                };
+                self.sentence.push_back(Sentence::Jp(jp));
+            }
+        }
     }
 
     fn push_num_word(&mut self, word: &str) {

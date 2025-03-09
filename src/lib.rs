@@ -2,7 +2,7 @@ use std::{collections::HashMap, str::FromStr, sync::Arc, usize};
 
 use anyhow::Ok;
 use tch::{IValue, Tensor};
-use text::{g2p_en::G2PEnConverter, g2pw::G2PWConverter, CNBertModel};
+use text::{g2p_en::G2PEnConverter, g2p_jp::G2PJpConverter, g2pw::G2PWConverter, CNBertModel};
 
 pub mod symbols;
 pub mod text;
@@ -52,7 +52,8 @@ impl GPTSovitsConfig {
         Ok(GPTSovits {
             zh_bert: cn_bert,
             g2pw,
-            g2p_en: text::g2p_en::G2PEnConverter::new(&self.g2p_en_path),
+            g2p_en: G2PEnConverter::new(&self.g2p_en_path),
+            g2p_jp: G2PJpConverter::new(),
             device,
             symbols: symbols::SYMBOLS.clone(),
             ssl,
@@ -102,8 +103,9 @@ impl Speaker {
 
 pub struct GPTSovits {
     zh_bert: CNBertModel,
-    g2pw: text::g2pw::G2PWConverter,
-    g2p_en: text::g2p_en::G2PEnConverter,
+    g2pw: G2PWConverter,
+    g2p_en: G2PEnConverter,
+    g2p_jp: G2PJpConverter,
     device: tch::Device,
     symbols: HashMap<String, i64>,
     ssl: tch::CModule,
@@ -118,6 +120,7 @@ impl GPTSovits {
         zh_bert: CNBertModel,
         g2pw: G2PWConverter,
         g2p_en: G2PEnConverter,
+        g2p_jp: G2PJpConverter,
         device: tch::Device,
         symbols: HashMap<String, i64>,
         ssl: tch::CModule,
@@ -127,6 +130,7 @@ impl GPTSovits {
             zh_bert,
             g2pw,
             g2p_en,
+            g2p_jp,
             device,
             symbols,
             speakers: HashMap::new(),

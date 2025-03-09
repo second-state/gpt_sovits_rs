@@ -28,6 +28,7 @@ regex = "1.11.0"
 pest = "2.7"
 pest_derive = "2.7"
 serde = { version = "1.0", features = ["derive"] }
+jpreprocess = { version = "0.12.0", default-features = false, features = ["naist-jdic"] }
 
 [dev-dependencies]
 pinyin = "0.10.0"
