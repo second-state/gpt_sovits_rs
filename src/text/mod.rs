@@ -1039,7 +1039,7 @@ fn test_cut() {
 
     let jieba = Jieba::new();
 
-    let mut phone_builder = PhoneBuilder::new();
+    let mut phone_builder = PhoneBuilder::new(false);
     phone_builder.push_text(&jieba, target_text);
 
     for s in &phone_builder.sentence {
@@ -1117,4 +1117,76 @@ fn test_jieba() {
     for t in tag {
         println!("{:?}", t);
     }
+}
+
+#[test]
+fn test_jp_enabled() {
+    use jieba_rs::Jieba;
+    let jieba = Jieba::new();
+
+    let mut phone_builder = PhoneBuilder::new(true);
+    phone_builder.push_text(&jieba, "你喜欢看アニメ吗");
+
+    let mut iter = phone_builder.sentence.iter();
+    assert!(matches!(iter.next().unwrap(), Sentence::Zh(_)));
+    assert!(matches!(iter.next().unwrap(), Sentence::Jp(_)));
+    assert!(matches!(iter.next().unwrap(), Sentence::Zh(_)));
+    assert!(iter.next().is_none());
+
+    let mut phone_builder = PhoneBuilder::new(true);
+    phone_builder.push_text(&jieba, "昨天見た映画はとても感動的でした");
+
+    let mut iter = phone_builder.sentence.iter();
+    assert!(matches!(iter.next().unwrap(), Sentence::Zh(_)));
+    assert!(matches!(iter.next().unwrap(), Sentence::Jp(_)));
+    assert!(matches!(iter.next().unwrap(), Sentence::Zh(_)));
+    assert!(matches!(iter.next().unwrap(), Sentence::Jp(_)));
+    assert!(matches!(iter.next().unwrap(), Sentence::Zh(_)));
+    assert!(matches!(iter.next().unwrap(), Sentence::Jp(_)));
+    assert!(iter.next().is_none());
+
+    let mut phone_builder = PhoneBuilder::new(true);
+    phone_builder.push_text(
+        &jieba,
+        "我的名字是西野くまです。I am from Tokyo, 日本の首都。今天的天气非常好",
+    );
+    let mut iter = phone_builder.sentence.iter();
+    assert!(matches!(iter.next().unwrap(), Sentence::Zh(_)));
+    assert!(matches!(iter.next().unwrap(), Sentence::Jp(_)));
+    assert!(matches!(iter.next().unwrap(), Sentence::En(_)));
+    assert!(matches!(iter.next().unwrap(), Sentence::Zh(_)));
+    assert!(matches!(iter.next().unwrap(), Sentence::Jp(_)));
+    assert!(matches!(iter.next().unwrap(), Sentence::Zh(_)));
+    assert!(iter.next().is_none());
+}
+
+#[test]
+fn test_jp_disabled() {
+    use jieba_rs::Jieba;
+    let jieba = Jieba::new();
+
+    let mut phone_builder = PhoneBuilder::new(false);
+    phone_builder.push_text(&jieba, "你喜欢看アニメ吗");
+
+    let mut iter = phone_builder.sentence.iter();
+    assert!(matches!(iter.next().unwrap(), Sentence::Zh(_)));
+    assert!(iter.next().is_none());
+
+    let mut phone_builder = PhoneBuilder::new(false);
+    phone_builder.push_text(&jieba, "昨天見た映画はとても感動的でした");
+
+    let mut iter = phone_builder.sentence.iter();
+    assert!(matches!(iter.next().unwrap(), Sentence::Zh(_)));
+    assert!(iter.next().is_none());
+
+    let mut phone_builder = PhoneBuilder::new(false);
+    phone_builder.push_text(
+        &jieba,
+        "我的名字是西野くまです。I am from Tokyo, 日本の首都。今天的天气非常好",
+    );
+    let mut iter = phone_builder.sentence.iter();
+    assert!(matches!(iter.next().unwrap(), Sentence::Zh(_)));
+    assert!(matches!(iter.next().unwrap(), Sentence::En(_)));
+    assert!(matches!(iter.next().unwrap(), Sentence::Zh(_)));
+    assert!(iter.next().is_none());
 }
