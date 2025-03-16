@@ -128,7 +128,7 @@ fn main() {
 ### Turn on Japanese support
 
 > [!NOTE]
-> Currently the text frontend could only parse furigana as Japanese. However, the Japanese g2p should support kanji as well. You might want to fork this repo if your use case have no Chinese input.
+> Currently the text frontend could only parse kana as Japanese. However, the Japanese g2p should support kanji as well. You might want to fork this repo if your use case have no Chinese input.
 
 ```rust
 use gpt_sovits_rs::GPTSovitsConfig;
