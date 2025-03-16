@@ -12,6 +12,7 @@ pub struct GPTSovitsConfig {
     pub cn_setting: Option<(String, String)>,
     pub g2p_en_path: String,
     pub ssl_path: String,
+    pub enable_jp: bool,
 }
 
 impl GPTSovitsConfig {
@@ -20,12 +21,17 @@ impl GPTSovitsConfig {
             cn_setting: None,
             g2p_en_path,
             ssl_path,
+            enable_jp: false,
         }
     }
 
     pub fn with_chinese(mut self, g2pw_path: String, cn_bert_path: String) -> Self {
         self.cn_setting = Some((g2pw_path, cn_bert_path));
         self
+    }
+
+    pub fn with_jp(self, enable_jp: bool) -> Self {
+        Self { enable_jp, ..self }
     }
 
     pub fn build(&self, device: Device) -> anyhow::Result<GPTSovits> {
@@ -59,6 +65,7 @@ impl GPTSovitsConfig {
             ssl,
             jieba: jieba_rs::Jieba::new(),
             speakers: HashMap::new(),
+            enable_jp: self.enable_jp,
         })
     }
 }
@@ -113,6 +120,8 @@ pub struct GPTSovits {
     speakers: HashMap<String, Speaker>,
 
     jieba: jieba_rs::Jieba,
+
+    enable_jp: bool,
 }
 
 impl GPTSovits {
@@ -125,6 +134,7 @@ impl GPTSovits {
         symbols: HashMap<String, i64>,
         ssl: tch::CModule,
         jieba: jieba_rs::Jieba,
+        enable_jp: bool,
     ) -> Self {
         Self {
             zh_bert,
@@ -136,6 +146,7 @@ impl GPTSovits {
             speakers: HashMap::new(),
             ssl,
             jieba,
+            enable_jp,
         }
     }
 

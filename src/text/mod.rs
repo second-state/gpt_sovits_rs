@@ -428,14 +428,14 @@ pub fn get_phone_and_bert(gpts: &GPTSovits, text: &str) -> anyhow::Result<(Tenso
     let mut phone_seq = Vec::new();
     let mut bert_seq = Vec::new();
 
-    let mut phone_builder = PhoneBuilder::new();
+    let mut phone_builder = PhoneBuilder::new(gpts.enable_jp);
     phone_builder.push_text(&gpts.jieba, text);
     if !text.ends_with(['。', '.', '?', '？', '!', '！']) {
         phone_builder.push_punctuation(".");
     }
 
     fn helper<I: IntoIterator<Item = Sentence>>(
-        mut i: I,
+        i: I,
         gpts: &GPTSovits,
         phone_seq: &mut Vec<Tensor>,
         bert_seq: &mut Vec<Tensor>,
@@ -797,7 +797,7 @@ impl NumSentence {
         //     Lang::Zh => text::num_to_zh_text(symbols, &self.num_text, last_char_is_punctuation),
         //     Lang::En => text::num_to_en_text(symbols, &self.num_text, last_char_is_punctuation),
         // }
-        let mut builder = PhoneBuilder::new();
+        let mut builder = PhoneBuilder::new(false);
         let pairs = num::ExprParser::parse(num::Rule::all, &self.num_text)?;
         for pair in pairs {
             match self.lang {
@@ -821,6 +821,7 @@ enum Sentence {
 #[derive(Debug)]
 pub struct PhoneBuilder {
     sentence: LinkedList<Sentence>,
+    enable_jp: bool,
 }
 
 fn parse_punctuation(p: &str) -> Option<&'static str> {
@@ -870,9 +871,10 @@ fn is_jp_kana(p: &str) -> bool {
 }
 
 impl PhoneBuilder {
-    pub fn new() -> Self {
+    pub fn new(enable_jp: bool) -> Self {
         Self {
             sentence: LinkedList::new(),
+            enable_jp,
         }
     }
 
@@ -888,7 +890,7 @@ impl PhoneBuilder {
                 self.push_zh_word(t);
             } else if t.is_ascii() {
                 self.push_en_word(t);
-            } else if is_jp_kana(t) {
+            } else if self.enable_jp && is_jp_kana(t) {
                 self.push_jp_word(t);
             } else {
                 log::warn!("skip word: {:?} in {}", t, text);
@@ -991,7 +993,7 @@ impl PhoneBuilder {
                 jp.text.push_str(word);
             }
             _ => {
-                let mut jp = JpSentence {
+                let jp = JpSentence {
                     text: word.to_owned(),
                 };
                 self.sentence.push_back(Sentence::Jp(jp));
@@ -1053,6 +1055,7 @@ fn test_cut() {
                 println!("phones: {:?}", en.phones);
                 println!("en_text: {:?}", en.en_text);
             }
+            Sentence::Jp(_) => unreachable!(),
             Sentence::Num(num) => {
                 println!("###num###");
                 println!("num_text: {:?}|{:?}", num.num_text, num.lang);
@@ -1069,7 +1072,7 @@ fn test_cut() {
                             println!("phones: {:?}", en.phones);
                             println!("en_text: {:?}", en.en_text);
                         }
-                        Sentence::Num(_) => unreachable!(),
+                        Sentence::Jp(_) | Sentence::Num(_) => unreachable!(),
                     }
                 }
             }
