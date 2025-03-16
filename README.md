@@ -125,6 +125,31 @@ fn main() {
 
 ```
 
+### Turn on Japanese support
+
+> [!NOTE]
+> Currently the text frontend could only parse furigana as Japanese. However, the Japanese g2p should support kanji as well. You might want to fork this repo if your use case have no Chinese input.
+
+```rust
+use gpt_sovits_rs::GPTSovitsConfig;
+
+fn main() {
+    env_logger::init();
+
+    let gpt_config = GPTSovitsConfig::new(
+        "path/to/ssl_model.pt".to_string(),
+    ).with_chinese(
+        "path/to/g2pw.pt".to_string(),
+        "path/to/bert_model.pt".to_string(), 
+        "path/to/tokenizer.json".to_string()
+    )
+    .with_jp(true);
+
+    // init gpt_sovits with config
+    // ...
+}
+```
+
 ## Exporting GPT-Sovits Training Results
 After completing the training of a GPT-Sovits model, you might need to export the training results to a .pt (PyTorch) file for use in other environments. Below are the detailed steps to export the trained model:
 
