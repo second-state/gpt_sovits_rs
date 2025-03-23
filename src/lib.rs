@@ -62,20 +62,44 @@ impl GPTSovitsConfig {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum Version {
+    V2_0,
+    // 由于 v3 的改动，V2.1 需要传入 top_k
+    V2_1,
+    V3,
+}
+
 #[derive(Debug)]
 pub struct Speaker {
     name: String,
-    gpt_sovits: tch::CModule,
+    gpt_sovits_path: String,
+    gpt_sovits: Arc<tch::CModule>,
     ref_text: String,
     ssl_content: Tensor,
     ref_audio_32k: Tensor,
     ref_phone_seq: Tensor,
     ref_bert_seq: Tensor,
+    version: Version,
+    pub top_k: Option<Tensor>,
+    pub sample_steps: Option<Tensor>,
 }
 
 impl Speaker {
     pub fn get_name(&self) -> &str {
         &self.name
+    }
+
+    pub fn version(&self) -> Version {
+        self.version
+    }
+
+    pub fn set_top_k(&mut self, top_k: Option<Tensor>) {
+        self.top_k = top_k;
+    }
+
+    pub fn set_sample_steps(&mut self, sample_steps: Option<Tensor>) {
+        self.sample_steps = sample_steps;
     }
 
     pub fn get_ref_text(&self) -> &str {
@@ -86,7 +110,7 @@ impl Speaker {
         &self.ref_audio_32k
     }
 
-    pub fn infer(&self, text_phone_seq: &Tensor, bert_seq: &Tensor) -> anyhow::Result<Tensor> {
+    pub fn infer_v2(&self, text_phone_seq: &Tensor, bert_seq: &Tensor) -> anyhow::Result<Tensor> {
         let audio = self.gpt_sovits.forward_ts(&[
             &self.ssl_content,
             &self.ref_audio_32k,
@@ -97,6 +121,62 @@ impl Speaker {
         ])?;
 
         Ok(audio)
+    }
+
+    pub fn infer_v2_1(&self, text_phone_seq: &Tensor, bert_seq: &Tensor) -> anyhow::Result<Tensor> {
+        let top_k = if let Some(top_k) = &self.top_k {
+            top_k.shallow_clone()
+        } else {
+            Tensor::from_slice(&[15])
+        };
+
+        let audio = self.gpt_sovits.forward_ts(&[
+            &self.ssl_content,
+            &self.ref_audio_32k,
+            &self.ref_phone_seq,
+            &text_phone_seq,
+            &self.ref_bert_seq,
+            &bert_seq,
+            &top_k,
+        ])?;
+
+        Ok(audio)
+    }
+
+    pub fn infer_v3(&self, text_phone_seq: &Tensor, bert_seq: &Tensor) -> anyhow::Result<Tensor> {
+        let top_k = if let Some(top_k) = &self.top_k {
+            top_k.shallow_clone()
+        } else {
+            Tensor::from_slice(&[15])
+        };
+        let sample_steps = if let Some(sample_steps) = &self.sample_steps {
+            sample_steps.shallow_clone()
+        } else {
+            Tensor::from_slice(&[8])
+        };
+
+        let audio = self.gpt_sovits.forward_ts(&[
+            &self.ssl_content.internal_cast_half(false),
+            &self.ref_audio_32k,
+            &self.ref_phone_seq,
+            &text_phone_seq,
+            &self.ref_bert_seq.internal_cast_half(false),
+            &bert_seq.internal_cast_half(false),
+            &top_k,
+            &sample_steps,
+        ])?;
+
+        let audio = audio.to_dtype(tch::Kind::Float, false, false);
+
+        Ok(audio)
+    }
+
+    pub fn infer(&self, text_phone_seq: &Tensor, bert_seq: &Tensor) -> anyhow::Result<Tensor> {
+        match self.version {
+            Version::V2_0 => self.infer_v2(text_phone_seq, bert_seq),
+            Version::V2_1 => self.infer_v2_1(text_phone_seq, bert_seq),
+            Version::V3 => self.infer_v3(text_phone_seq, bert_seq),
+        }
     }
 }
 
@@ -135,6 +215,25 @@ impl GPTSovits {
         }
     }
 
+    fn find_gpt_sovits_by_path(&self, path: &str) -> Option<Arc<tch::CModule>> {
+        for speaker in self.speakers.values() {
+            if speaker.gpt_sovits_path == path {
+                return Some(speaker.gpt_sovits.clone());
+            }
+        }
+        None
+    }
+
+    fn find_gpt_sovits_by_path_or_load(&self, path: &str) -> anyhow::Result<Arc<tch::CModule>> {
+        if let Some(gpt_sovits) = self.find_gpt_sovits_by_path(path) {
+            Ok(gpt_sovits)
+        } else {
+            let mut gpt_sovits = tch::CModule::load_on_device(path, self.device)?;
+            gpt_sovits.set_eval();
+            Ok(Arc::new(gpt_sovits))
+        }
+    }
+
     pub fn create_speaker(
         &mut self,
         name: &str,
@@ -144,8 +243,7 @@ impl GPTSovits {
         ref_text: &str,
     ) -> anyhow::Result<()> {
         tch::no_grad(|| {
-            let mut gpt_sovits = tch::CModule::load_on_device(gpt_sovits_path, self.device)?;
-            gpt_sovits.set_eval();
+            let gpt_sovits = self.find_gpt_sovits_by_path_or_load(gpt_sovits_path)?;
 
             // 避免句首吞字
             let ref_text = if !ref_text.ends_with(['。', '.']) {
@@ -167,12 +265,115 @@ impl GPTSovits {
 
             let speaker = Speaker {
                 name: name.to_string(),
+                gpt_sovits_path: gpt_sovits_path.to_string(),
                 gpt_sovits,
                 ref_text,
                 ssl_content,
                 ref_audio_32k,
                 ref_phone_seq,
                 ref_bert_seq,
+                version: Version::V2_0,
+                top_k: None,
+                sample_steps: None,
+            };
+
+            self.speakers.insert(name.to_string(), speaker);
+            Ok(())
+        })
+    }
+
+    pub fn create_speaker_v2_1(
+        &mut self,
+        name: &str,
+        gpt_sovits_path: &str,
+        ref_audio_samples: &[f32],
+        ref_audio_sr: usize,
+        ref_text: &str,
+        top_k: Option<Tensor>,
+    ) -> anyhow::Result<()> {
+        tch::no_grad(|| {
+            let gpt_sovits = self.find_gpt_sovits_by_path_or_load(gpt_sovits_path)?;
+
+            // 避免句首吞字
+            let ref_text = if !ref_text.ends_with(['。', '.']) {
+                ref_text.to_string() + "."
+            } else {
+                ref_text.to_string()
+            };
+
+            let ref_audio = Tensor::from_slice(ref_audio_samples)
+                .to_device(self.device)
+                .unsqueeze(0);
+
+            let ref_audio_16k = self.resample(&ref_audio, ref_audio_sr, 16000)?;
+            let ref_audio_32k = self.resample(&ref_audio, ref_audio_sr, 32000)?;
+
+            let ssl_content = self.ssl.forward_ts(&[&ref_audio_16k])?;
+
+            let (ref_phone_seq, ref_bert_seq) = text::get_phone_and_bert(self, &ref_text)?;
+
+            let speaker = Speaker {
+                name: name.to_string(),
+                gpt_sovits_path: gpt_sovits_path.to_string(),
+                gpt_sovits,
+                ref_text,
+                ssl_content,
+                ref_audio_32k,
+                ref_phone_seq,
+                ref_bert_seq,
+                version: Version::V2_1,
+                top_k,
+                sample_steps: None,
+            };
+
+            self.speakers.insert(name.to_string(), speaker);
+            Ok(())
+        })
+    }
+
+    pub fn create_speaker_v3(
+        &mut self,
+        name: &str,
+        gpt_sovits_path: &str,
+        ref_audio_samples: &[f32],
+        ref_audio_sr: usize,
+        ref_text: &str,
+        top_k: Option<Tensor>,
+        sample_steps: Option<Tensor>,
+    ) -> anyhow::Result<()> {
+        tch::no_grad(|| {
+            let gpt_sovits = self.find_gpt_sovits_by_path_or_load(gpt_sovits_path)?;
+
+            // 避免句首吞字
+            let ref_text = if !ref_text.ends_with(['。', '.']) {
+                ref_text.to_string() + "."
+            } else {
+                ref_text.to_string()
+            };
+
+            let ref_audio = Tensor::from_slice(ref_audio_samples)
+                .to_device(self.device)
+                .unsqueeze(0);
+
+            let ref_audio_16k = self.resample(&ref_audio, ref_audio_sr, 16000)?;
+            let ref_audio_32k = self.resample(&ref_audio, ref_audio_sr, 32000)?;
+
+            let ssl_content = self.ssl.forward_ts(&[&ref_audio_16k])?;
+
+            let (ref_phone_seq, ref_bert_seq) = text::get_phone_and_bert(self, &ref_text)?;
+
+            let speaker = Speaker {
+                name: name.to_string(),
+                gpt_sovits_path: gpt_sovits_path.to_string(),
+                gpt_sovits,
+                ref_text,
+                ssl_content,
+                ref_audio_32k,
+                ref_phone_seq,
+                ref_bert_seq,
+                version: Version::V3,
+                top_k,
+                sample_steps,
             };
 
             self.speakers.insert(name.to_string(), speaker);
@@ -195,6 +396,30 @@ impl GPTSovits {
                 _ => unreachable!(),
             }
         })
+    }
+
+    /// Only V2.1 and V3 support top_k
+    pub fn set_top_k(&mut self, speaker: &str, top_k: Option<Tensor>) -> anyhow::Result<()> {
+        let speaker = self
+            .speakers
+            .get_mut(speaker)
+            .ok_or_else(|| anyhow::anyhow!("speaker not found"))?;
+        speaker.set_top_k(top_k);
+        Ok(())
+    }
+
+    /// Only V3 support sample_steps
+    pub fn set_sample_steps(
+        &mut self,
+        speaker: &str,
+        sample_steps: Option<Tensor>,
+    ) -> anyhow::Result<()> {
+        let speaker = self
+            .speakers
+            .get_mut(speaker)
+            .ok_or_else(|| anyhow::anyhow!("speaker not found"))?;
+        speaker.set_sample_steps(sample_steps);
+        Ok(())
     }
 
     /// generate a audio tensor from text
