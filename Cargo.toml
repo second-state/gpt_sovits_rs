@@ -22,12 +22,13 @@ jieba-rs = { version = "0.7", features = ["tfidf", "textrank"] }
 # grapheme_to_phoneme = "0.1"
 num2en = "1.0.0"
 log = "0.4.22"
-env_logger = "0.11.5"
+env_logger = "0.11.6"
 lazy_static = "1.5.0"
 regex = "1.11.0"
 pest = "2.7"
 pest_derive = "2.7"
 serde = { version = "1.0", features = ["derive"] }
+jpreprocess = { version = "0.12.0", default-features = false, features = ["naist-jdic"] }
 
 [dev-dependencies]
 pinyin = "0.10.0"

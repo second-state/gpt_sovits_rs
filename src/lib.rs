@@ -2,7 +2,7 @@ use std::{collections::HashMap, str::FromStr, sync::Arc, usize};
 
 use anyhow::Ok;
 use tch::{IValue, Tensor};
-use text::{g2p_en::G2PEnConverter, g2pw::G2PWConverter, CNBertModel};
+use text::{g2p_en::G2PEnConverter, g2p_jp::G2PJpConverter, g2pw::G2PWConverter, CNBertModel};
 
 pub mod symbols;
 pub mod text;
@@ -12,6 +12,7 @@ pub struct GPTSovitsConfig {
     pub cn_setting: Option<(String, String)>,
     pub g2p_en_path: String,
     pub ssl_path: String,
+    pub enable_jp: bool,
 }
 
 impl GPTSovitsConfig {
@@ -20,12 +21,17 @@ impl GPTSovitsConfig {
             cn_setting: None,
             g2p_en_path,
             ssl_path,
+            enable_jp: false,
         }
     }
 
     pub fn with_chinese(mut self, g2pw_path: String, cn_bert_path: String) -> Self {
         self.cn_setting = Some((g2pw_path, cn_bert_path));
         self
+    }
+
+    pub fn with_jp(self, enable_jp: bool) -> Self {
+        Self { enable_jp, ..self }
     }
 
     pub fn build(&self, device: Device) -> anyhow::Result<GPTSovits> {
@@ -52,12 +58,14 @@ impl GPTSovitsConfig {
         Ok(GPTSovits {
             zh_bert: cn_bert,
             g2pw,
-            g2p_en: text::g2p_en::G2PEnConverter::new(&self.g2p_en_path),
+            g2p_en: G2PEnConverter::new(&self.g2p_en_path),
+            g2p_jp: G2PJpConverter::new(),
             device,
             symbols: symbols::SYMBOLS.clone(),
             ssl,
             jieba: jieba_rs::Jieba::new(),
             speakers: HashMap::new(),
+            enable_jp: self.enable_jp,
         })
     }
 }
@@ -182,8 +190,9 @@ impl Speaker {
 
 pub struct GPTSovits {
     zh_bert: CNBertModel,
-    g2pw: text::g2pw::G2PWConverter,
-    g2p_en: text::g2p_en::G2PEnConverter,
+    g2pw: G2PWConverter,
+    g2p_en: G2PEnConverter,
+    g2p_jp: G2PJpConverter,
     device: tch::Device,
     symbols: HashMap<String, i64>,
     ssl: tch::CModule,
@@ -191,6 +200,8 @@ pub struct GPTSovits {
     speakers: HashMap<String, Speaker>,
 
     jieba: jieba_rs::Jieba,
+
+    enable_jp: bool,
 }
 
 impl GPTSovits {
@@ -198,20 +209,24 @@ impl GPTSovits {
         zh_bert: CNBertModel,
         g2pw: G2PWConverter,
         g2p_en: G2PEnConverter,
+        g2p_jp: G2PJpConverter,
         device: tch::Device,
         symbols: HashMap<String, i64>,
         ssl: tch::CModule,
         jieba: jieba_rs::Jieba,
+        enable_jp: bool,
     ) -> Self {
         Self {
             zh_bert,
             g2pw,
             g2p_en,
+            g2p_jp,
             device,
             symbols,
             speakers: HashMap::new(),
             ssl,
             jieba,
+            enable_jp,
         }
     }
 

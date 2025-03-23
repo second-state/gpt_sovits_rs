@@ -137,7 +137,7 @@ pub mod zh {
 
     #[test]
     fn test_parse_integer() {
-        let mut builder = PhoneBuilder::new();
+        let mut builder = PhoneBuilder::new(false);
 
         let mut p = ExprParser::parse(Rule::integer, "0").unwrap_or_else(|e| panic!("{}", e));
         let p = p.next().unwrap();
@@ -158,7 +158,7 @@ pub mod zh {
 
         println!("{:?}", builder.sentence.back().unwrap());
 
-        let mut builder = PhoneBuilder::new();
+        let mut builder = PhoneBuilder::new(false);
 
         let mut p =
             ExprParser::parse(Rule::integer, "034056009009040").unwrap_or_else(|e| panic!("{}", e));
@@ -249,7 +249,7 @@ pub mod zh {
 
     #[test]
     fn test_signs() {
-        let mut builder = PhoneBuilder::new();
+        let mut builder = PhoneBuilder::new(false);
 
         let mut p = ExprParser::parse(Rule::signs, "034.9/(9.2)+ -89.2%=99/10")
             .unwrap_or_else(|e| panic!("{}", e));
@@ -392,7 +392,7 @@ pub mod zh {
 
     #[test]
     fn test_parse_all() {
-        let mut builder = PhoneBuilder::new();
+        let mut builder = PhoneBuilder::new(false);
 
         let mut p =
             ExprParser::parse(Rule::all, "1.6+2.005=3.65%").unwrap_or_else(|e| panic!("{}", e));
@@ -411,7 +411,7 @@ pub mod zh {
 
     #[test]
     fn test_parse_all_ident() {
-        let mut builder = PhoneBuilder::new();
+        let mut builder = PhoneBuilder::new(false);
 
         let mut p = ExprParser::parse(Rule::all, "GPT-α96").unwrap_or_else(|e| panic!("{}", e));
         let p = p.next().unwrap();
@@ -532,7 +532,7 @@ pub mod en {
 
     #[test]
     fn test_parse_integer() {
-        let mut builder = PhoneBuilder::new();
+        let mut builder = PhoneBuilder::new(false);
 
         let mut p =
             ExprParser::parse(Rule::integer, "034056009009040").unwrap_or_else(|e| panic!("{}", e));
@@ -541,7 +541,7 @@ pub mod en {
 
         println!("{:?}", builder.sentence.back().unwrap());
 
-        let mut builder = PhoneBuilder::new();
+        let mut builder = PhoneBuilder::new(false);
 
         let mut p =
             ExprParser::parse(Rule::integer, "034056009009040").unwrap_or_else(|e| panic!("{}", e));
@@ -639,7 +639,7 @@ pub mod en {
 
     #[test]
     fn test_signs() {
-        let mut builder = PhoneBuilder::new();
+        let mut builder = PhoneBuilder::new(false);
 
         let mut p = ExprParser::parse(Rule::signs, "034.9/(9.2)+ -89.2%=99/10")
             .unwrap_or_else(|e| panic!("{}", e));
@@ -781,7 +781,7 @@ pub mod en {
 
     #[test]
     fn test_parse_all() {
-        let mut builder = PhoneBuilder::new();
+        let mut builder = PhoneBuilder::new(false);
 
         let mut p =
             ExprParser::parse(Rule::all, "1.6+2.005=3.65%").unwrap_or_else(|e| panic!("{}", e));
@@ -800,7 +800,7 @@ pub mod en {
 
     #[test]
     fn test_parse_all_ident() {
-        let mut builder = PhoneBuilder::new();
+        let mut builder = PhoneBuilder::new(false);
 
         let mut p = ExprParser::parse(Rule::all, "GPT-α96").unwrap_or_else(|e| panic!("{}", e));
         let p = p.next().unwrap();
