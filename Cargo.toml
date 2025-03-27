@@ -1,6 +1,6 @@
 [package]
 name = "gpt_sovits_rs"
-version = "0.4.0"
+version = "0.4.1"
 edition = "2021"
 description = "A GPT_Sovits inference lib in Rust base on pytorch"
 license = "MIT"
@@ -28,7 +28,9 @@ regex = "1.11.0"
 pest = "2.7"
 pest_derive = "2.7"
 serde = { version = "1.0", features = ["derive"] }
-jpreprocess = { version = "0.12.0", default-features = false, features = ["naist-jdic"] }
+jpreprocess = { version = "0.12.0", default-features = false, features = [
+    "naist-jdic",
+] }
 
 [dev-dependencies]
 pinyin = "0.10.0"
