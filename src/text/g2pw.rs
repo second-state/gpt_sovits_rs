@@ -340,9 +340,14 @@ impl G2PWConverter {
     pub fn new_with_device(
         model_path: &str,
         tokenizer: Arc<tokenizers::Tokenizer>,
-        device: crate::Device,
+        mut device: crate::Device,
     ) -> anyhow::Result<Self> {
+        if device == crate::Device::Mps {
+            device = crate::Device::Cpu;
+        }
+
         let mut model = tch::CModule::load_on_device(model_path, device)?;
+
         model.set_eval();
         Ok(Self {
             model: Some(Arc::new(model)),

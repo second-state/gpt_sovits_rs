@@ -155,16 +155,31 @@ impl Speaker {
         let sample_steps = self.sample_steps.unwrap_or(8);
         let sample_steps = Tensor::from_slice(&[sample_steps]);
 
-        let audio = self.gpt_sovits.forward_ts(&[
-            &self.ssl_content.internal_cast_half(false),
-            &self.ref_audio_32k,
-            &self.ref_phone_seq,
-            &text_phone_seq,
-            &self.ref_bert_seq.internal_cast_half(false),
-            &bert_seq.internal_cast_half(false),
-            &top_k,
-            &sample_steps,
-        ])?;
+        let is_cpu = bert_seq.device() == Device::Cpu;
+
+        let audio = if !is_cpu {
+            self.gpt_sovits.forward_ts(&[
+                &self.ssl_content.internal_cast_half(false),
+                &self.ref_audio_32k,
+                &self.ref_phone_seq,
+                &text_phone_seq,
+                &self.ref_bert_seq.internal_cast_half(false),
+                &bert_seq.internal_cast_half(false),
+                &top_k,
+                &sample_steps,
+            ])?
+        } else {
+            self.gpt_sovits.forward_ts(&[
+                &self.ssl_content,
+                &self.ref_audio_32k,
+                &self.ref_phone_seq,
+                &text_phone_seq,
+                &self.ref_bert_seq,
+                &bert_seq,
+                &top_k,
+                &sample_steps,
+            ])?
+        };
 
         let audio = audio.to_dtype(tch::Kind::Float, false, false);
 
@@ -235,7 +250,13 @@ impl GPTSovits {
         if let Some(gpt_sovits) = self.find_gpt_sovits_by_path(path) {
             Ok(gpt_sovits)
         } else {
-            let mut gpt_sovits = tch::CModule::load_on_device(path, self.device)?;
+            let mut gpt_sovits;
+            if self.device == Device::Mps {
+                gpt_sovits = tch::CModule::load(path)?;
+                gpt_sovits.to(self.device, tch::Kind::Half, false)
+            } else {
+                gpt_sovits = tch::CModule::load_on_device(path, self.device)?;
+            }
             gpt_sovits.set_eval();
             Ok(Arc::new(gpt_sovits))
         }
@@ -358,9 +379,12 @@ impl GPTSovits {
                 ref_text.to_string()
             };
 
-            let ref_audio = Tensor::from_slice(ref_audio_samples)
+            let mut ref_audio = Tensor::from_slice(ref_audio_samples)
                 .to_device(self.device)
                 .unsqueeze(0);
+            if self.device == Device::Mps {
+                ref_audio = ref_audio.totype(tch::Kind::Half);
+            }
 
             let ref_audio_16k = self.resample(&ref_audio, ref_audio_sr, 16000)?;
             let ref_audio_32k = self.resample(&ref_audio, ref_audio_sr, 32000)?;
