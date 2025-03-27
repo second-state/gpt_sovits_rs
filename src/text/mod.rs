@@ -906,6 +906,18 @@ impl PhoneBuilder {
                     .push(g2pw::G2PWOut::RawChar(p.chars().next().unwrap()));
             }
             Some(Sentence::En(en)) => {
+                if p == " "
+                    && en
+                        .en_text
+                        .last()
+                        .map(|w| match w {
+                            EnWord::Word(p) => p == "a",
+                            _ => false,
+                        })
+                        .unwrap_or(false)
+                {
+                    return;
+                }
                 en.en_text.push(EnWord::Punctuation(p));
             }
             Some(Sentence::Num(_)) => {
@@ -935,6 +947,21 @@ impl PhoneBuilder {
                     en.en_text.last_mut().map(|w| {
                         if let EnWord::Word(w) = w {
                             w.push_str("'");
+                            w.push_str(&word);
+                        }
+                    });
+                } else if en
+                    .en_text
+                    .last()
+                    .map(|w| match w {
+                        EnWord::Word(w) => w == "a",
+                        _ => false,
+                    })
+                    .unwrap_or(false)
+                {
+                    en.en_text.last_mut().map(|w| {
+                        if let EnWord::Word(w) = w {
+                            w.push_str(" ");
                             w.push_str(&word);
                         }
                     });
@@ -1035,7 +1062,7 @@ fn test_cut() {
     use jieba_rs::Jieba;
 
     let target_text =
-        "α-200,Good morning.我现在支持了 英文 和 中文 这两种语言。English and Chinese.I love Rust very much.我爱Rust！你知不知道1+1=多少？30%的人不知道哦.你可以问问 lisa_GPT-32 有-70+30=? 劫-98G";
+        "about 80% of Americans believed Thompson's killer had either \"a great deal\" or \"a moderate amount\" of responsibility for the murder,";
 
     let jieba = Jieba::new();
 

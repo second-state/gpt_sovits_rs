@@ -90,6 +90,10 @@ impl G2PEnConverter {
 #[test]
 fn test_g2p_en_converter() {
     let g2p_en = G2PEnConverter::new("./resource/mini-bart-g2p.pt");
-    let phoneme = g2p_en.get_phoneme("world").unwrap();
+    let phoneme = g2p_en.get_phoneme("a hello world").unwrap();
+    println!("{}", phoneme);
+    let phoneme = g2p_en.get_phoneme("hello world").unwrap();
+    println!("{}", phoneme);
+    let phoneme = g2p_en.get_phoneme("a").unwrap();
     println!("{}", phoneme);
 }
