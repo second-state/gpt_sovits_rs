@@ -89,8 +89,8 @@ pub struct Speaker {
     ref_phone_seq: Tensor,
     ref_bert_seq: Tensor,
     version: Version,
-    pub top_k: Option<Tensor>,
-    pub sample_steps: Option<Tensor>,
+    pub top_k: Option<i64>,
+    pub sample_steps: Option<i64>,
 }
 
 impl Speaker {
@@ -102,11 +102,11 @@ impl Speaker {
         self.version
     }
 
-    pub fn set_top_k(&mut self, top_k: Option<Tensor>) {
+    pub fn set_top_k(&mut self, top_k: Option<i64>) {
         self.top_k = top_k;
     }
 
-    pub fn set_sample_steps(&mut self, sample_steps: Option<Tensor>) {
+    pub fn set_sample_steps(&mut self, sample_steps: Option<i64>) {
         self.sample_steps = sample_steps;
     }
 
@@ -132,11 +132,8 @@ impl Speaker {
     }
 
     pub fn infer_v2_1(&self, text_phone_seq: &Tensor, bert_seq: &Tensor) -> anyhow::Result<Tensor> {
-        let top_k = if let Some(top_k) = &self.top_k {
-            top_k.shallow_clone()
-        } else {
-            Tensor::from_slice(&[15])
-        };
+        let top_k = self.top_k.unwrap_or(15);
+        let top_k = Tensor::from_slice(&[top_k]);
 
         let audio = self.gpt_sovits.forward_ts(&[
             &self.ssl_content,
@@ -152,16 +149,11 @@ impl Speaker {
     }
 
     pub fn infer_v3(&self, text_phone_seq: &Tensor, bert_seq: &Tensor) -> anyhow::Result<Tensor> {
-        let top_k = if let Some(top_k) = &self.top_k {
-            top_k.shallow_clone()
-        } else {
-            Tensor::from_slice(&[15])
-        };
-        let sample_steps = if let Some(sample_steps) = &self.sample_steps {
-            sample_steps.shallow_clone()
-        } else {
-            Tensor::from_slice(&[8])
-        };
+        let top_k = self.top_k.unwrap_or(15);
+        let top_k = Tensor::from_slice(&[top_k]);
+
+        let sample_steps = self.sample_steps.unwrap_or(8);
+        let sample_steps = Tensor::from_slice(&[sample_steps]);
 
         let audio = self.gpt_sovits.forward_ts(&[
             &self.ssl_content.internal_cast_half(false),
@@ -304,7 +296,7 @@ impl GPTSovits {
         ref_audio_samples: &[f32],
         ref_audio_sr: usize,
         ref_text: &str,
-        top_k: Option<Tensor>,
+        top_k: Option<i64>,
     ) -> anyhow::Result<()> {
         tch::no_grad(|| {
             let gpt_sovits = self.find_gpt_sovits_by_path_or_load(gpt_sovits_path)?;
@@ -353,8 +345,8 @@ impl GPTSovits {
         ref_audio_samples: &[f32],
         ref_audio_sr: usize,
         ref_text: &str,
-        top_k: Option<Tensor>,
-        sample_steps: Option<Tensor>,
+        top_k: Option<i64>,
+        sample_steps: Option<i64>,
     ) -> anyhow::Result<()> {
         tch::no_grad(|| {
             let gpt_sovits = self.find_gpt_sovits_by_path_or_load(gpt_sovits_path)?;
@@ -414,7 +406,7 @@ impl GPTSovits {
     }
 
     /// Only V2.1 and V3 support top_k
-    pub fn set_top_k(&mut self, speaker: &str, top_k: Option<Tensor>) -> anyhow::Result<()> {
+    pub fn set_top_k(&mut self, speaker: &str, top_k: Option<i64>) -> anyhow::Result<()> {
         let speaker = self
             .speakers
             .get_mut(speaker)
@@ -427,7 +419,7 @@ impl GPTSovits {
     pub fn set_sample_steps(
         &mut self,
         speaker: &str,
-        sample_steps: Option<Tensor>,
+        sample_steps: Option<i64>,
     ) -> anyhow::Result<()> {
         let speaker = self
             .speakers
@@ -435,6 +427,14 @@ impl GPTSovits {
             .ok_or_else(|| anyhow::anyhow!("speaker not found"))?;
         speaker.set_sample_steps(sample_steps);
         Ok(())
+    }
+
+    pub fn get_version(&self, speaker: &str) -> anyhow::Result<Version> {
+        let speaker = self
+            .speakers
+            .get(speaker)
+            .ok_or_else(|| anyhow::anyhow!("speaker not found"))?;
+        Ok(speaker.version)
     }
 
     /// generate a audio tensor from text
