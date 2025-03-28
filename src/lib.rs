@@ -182,8 +182,10 @@ impl Speaker {
         };
 
         let audio = audio.to_dtype(tch::Kind::Float, false, false);
+        let size = 24000.0 * 0.3;
+        let zero = tch::Tensor::zeros([size as i64], (tch::Kind::Float, audio.device()));
 
-        Ok(audio)
+        Ok(tch::Tensor::cat(&[audio, zero], 0))
     }
 
     pub fn infer(&self, text_phone_seq: &Tensor, bert_seq: &Tensor) -> anyhow::Result<Tensor> {
