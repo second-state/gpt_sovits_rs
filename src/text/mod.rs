@@ -445,6 +445,10 @@ pub fn get_phone_and_bert(gpts: &GPTSovits, text: &str) -> anyhow::Result<(Tenso
                 Sentence::Zh(mut zh) => {
                     log::trace!("zh text: {:?}", zh.zh_text);
                     log::trace!("zh phones: {:?}", zh.phones);
+                    if zh.zh_text.trim().is_empty() {
+                        log::trace!("get a empty zh text, skip");
+                        continue;
+                    }
 
                     zh.generate_pinyin(gpts);
                     match zh.build_phone_and_bert(gpts) {
@@ -791,7 +795,18 @@ struct NumSentence {
     lang: Lang,
 }
 
+static NUM_OP: [char; 8] = ['+', '-', '*', '×', '/', '÷', '=', '%'];
+
 impl NumSentence {
+    fn need_drop(&self) -> bool {
+        let num_text = self.num_text.trim();
+        num_text.is_empty() || num_text.chars().all(|c| NUM_OP.contains(&c))
+    }
+
+    fn is_link_symbol(&self) -> bool {
+        self.num_text == "-"
+    }
+
     fn to_phone_sentence(&self) -> anyhow::Result<LinkedList<Sentence>> {
         // match self.lang {
         //     Lang::Zh => text::num_to_zh_text(symbols, &self.num_text, last_char_is_punctuation),
@@ -856,7 +871,7 @@ fn parse_punctuation(p: &str) -> Option<&'static str> {
 
 fn is_numeric(p: &str) -> bool {
     p.chars().any(|c| c.is_numeric())
-        || p.contains(&['+', '-', '*', '×', '×', '/', '÷', '=', '%'])
+        || p.contains(&NUM_OP)
         || p.to_lowercase().contains(&[
             'α', 'β', 'γ', 'δ', 'ε', 'ζ', 'η', 'θ', 'ι', 'κ', 'λ', 'μ', 'ν', 'ξ', 'ο', 'π', 'ρ',
             'σ', 'ς', 'τ', 'υ', 'φ', 'χ', 'ψ', 'ω',
@@ -920,7 +935,10 @@ impl PhoneBuilder {
                 }
                 en.en_text.push(EnWord::Punctuation(p));
             }
-            Some(Sentence::Num(_)) => {
+            Some(Sentence::Num(n)) => {
+                if n.need_drop() {
+                    self.sentence.pop_back();
+                }
                 self.sentence.push_back(Sentence::En(EnSentence {
                     phones_ids: vec![],
                     phones: vec![],
@@ -940,13 +958,15 @@ impl PhoneBuilder {
                 if en
                     .en_text
                     .last()
-                    .map(|w| w == &EnWord::Punctuation("'"))
+                    .map(|w| w == &EnWord::Punctuation("'") || w == &EnWord::Punctuation("-"))
                     .unwrap_or(false)
                 {
-                    en.en_text.pop();
+                    let p = en.en_text.pop().unwrap();
                     en.en_text.last_mut().map(|w| {
                         if let EnWord::Word(w) = w {
-                            w.push_str("'");
+                            if let EnWord::Punctuation(p) = p {
+                                w.push_str(p);
+                            }
                             w.push_str(&word);
                         }
                     });
@@ -968,6 +988,15 @@ impl PhoneBuilder {
                 } else {
                     en.en_text.push(EnWord::Word(word));
                 }
+            }
+            Some(Sentence::Num(n)) if n.need_drop() => {
+                let pop = self.sentence.pop_back().unwrap();
+                if let Sentence::Num(n) = pop {
+                    if n.is_link_symbol() {
+                        self.push_punctuation("-");
+                    }
+                }
+                self.push_en_word(&word)
             }
             _ => {
                 let en = EnSentence {
@@ -1001,6 +1030,10 @@ impl PhoneBuilder {
             Some(Sentence::Zh(zh)) => {
                 h(zh, word);
             }
+            Some(Sentence::Num(n)) if n.need_drop() => {
+                self.sentence.pop_back();
+                self.push_zh_word(word);
+            }
             _ => {
                 let mut zh = ZhSentence {
                     phones_ids: Vec::new(),
@@ -1014,7 +1047,7 @@ impl PhoneBuilder {
         };
     }
 
-    fn push_jp_word(&mut self, word: &str) {
+    pub fn push_jp_word(&mut self, word: &str) {
         match self.sentence.back_mut() {
             Some(Sentence::Jp(jp)) => {
                 jp.text.push_str(word);
@@ -1028,7 +1061,7 @@ impl PhoneBuilder {
         }
     }
 
-    fn push_num_word(&mut self, word: &str) {
+    pub fn push_num_word(&mut self, word: &str) {
         match self.sentence.back_mut() {
             Some(Sentence::Zh(_)) => {
                 self.sentence.push_back(Sentence::Num(NumSentence {
@@ -1058,11 +1091,14 @@ impl PhoneBuilder {
 // cargo test --package gpt_sovits_rs --lib -- text::test_cut --exact --show-output
 #[test]
 fn test_cut() {
+    env_logger::init();
     // 分词
     use jieba_rs::Jieba;
 
-    let target_text =
-        "about 80% of Americans believed Thompson's killer had either \"a great deal\" or \"a moderate amount\" of responsibility for the murder,";
+    // let target_text =
+    //     "about 80% of Americans believed Thompson's killer had either \"a great deal\" or \"a moderate amount\" of responsibility for the murder,";
+
+    let target_text = "a near-team,a dog's cat,**你好**.* 我知道.1+2=3 Ω";
 
     let jieba = Jieba::new();
 
@@ -1089,13 +1125,13 @@ fn test_cut() {
                 for s in num.to_phone_sentence().unwrap() {
                     match s {
                         Sentence::Zh(zh) => {
-                            println!("###zh###");
+                            println!("###num-zh###");
                             println!("phones: {:?}", zh.phones);
                             println!("word2ph: {:?}", zh.word2ph);
                             println!("zh_text: {:?}", zh.zh_text);
                         }
                         Sentence::En(en) => {
-                            println!("###en###");
+                            println!("###num-en###");
                             println!("phones: {:?}", en.phones);
                             println!("en_text: {:?}", en.en_text);
                         }

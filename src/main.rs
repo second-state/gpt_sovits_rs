@@ -92,4 +92,3 @@ fn main() {
     wav_io::write_to_file(&mut file_out2, &header, &samples2).unwrap();
     log::info!("write file done");
 }
-

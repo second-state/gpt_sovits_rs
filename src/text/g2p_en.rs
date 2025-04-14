@@ -96,4 +96,6 @@ fn test_g2p_en_converter() {
     println!("{}", phoneme);
     let phoneme = g2p_en.get_phoneme("a").unwrap();
     println!("{}", phoneme);
+    let phoneme = g2p_en.get_phoneme("near-team").unwrap();
+    println!("{}", phoneme);
 }
