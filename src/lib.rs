@@ -1,6 +1,5 @@
 use std::{collections::HashMap, str::FromStr, sync::Arc, usize};
 
-use anyhow::Ok;
 use tch::{IValue, Tensor};
 use text::{g2p_en::G2PEnConverter, g2p_jp::G2PJpConverter, g2pw::G2PWConverter, CNBertModel};
 
@@ -494,8 +493,14 @@ impl GPTSovits {
             let chunks = crate::text::split_text(target_text, split_chunk_size);
             log::debug!("segment_infer split_text result: {:#?}", chunks);
             for target_text in chunks {
-                let audio = self.infer(speaker, target_text)?;
-                audios.push(audio);
+                match self.infer(speaker, target_text) {
+                    Ok(audio) => {
+                        audios.push(audio);
+                    }
+                    Err(e) => {
+                        log::warn!("SKIP segment_infer chunk:{target_text} error: {:?}", e);
+                    }
+                }
             }
             if !audios.is_empty() {
                 Ok(Tensor::cat(&audios, 0))

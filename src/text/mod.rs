@@ -394,6 +394,10 @@ pub fn split_text(text: &str, max_chunk_size: usize) -> Vec<&str> {
             total_count,
             splite_index
         );
+        if s.chars().count() == 1 {
+            splite_index += s.len();
+            continue;
+        }
         if total_count + count > max_chunk_size {
             let t = start_text.split_at(splite_index);
             let trim_s = t.0.trim();
@@ -847,7 +851,7 @@ fn parse_punctuation(p: &str) -> Option<&'static str> {
         "？" | "?" => Some("."),
         "；" | ";" => Some("."),
         "：" | ":" => Some(","),
-        "‘" | "’" => Some("-"),
+        "‘" | "’" => Some("'"),
         "'" => Some("'"),
         "“" | "”" | "\"" => Some("-"),
         "（" | "(" => Some("-"),
@@ -1098,7 +1102,7 @@ fn test_cut() {
     // let target_text =
     //     "about 80% of Americans believed Thompson's killer had either \"a great deal\" or \"a moderate amount\" of responsibility for the murder,";
 
-    let target_text = "a near-team,a dog's cat,**你好**.* 我知道.1+2=3 Ω";
+    let target_text = " Next up, we’re unraveling a tale as old as time – or at least as old as cautionary stories get. We're calling this one “The Wolf in Sheep’s Clothing…And Why Your Mom Is Always Right.” It’s the story of Little Red Riding Hood, but not the sanitized Disney version. We're going deep into the psychology, the symbolism, and honestly, the sheer *audacity* of that wolf. This isn't just a children's story; it's a masterclass in risk assessment, trust – or lack thereof – and why deviating from the established path can lead to becoming someone’s lunch. And joining me today to dissect this…well, frankly terrifying narrative is my friend, Elias. Welcome, Elias!";
 
     let jieba = Jieba::new();
 
