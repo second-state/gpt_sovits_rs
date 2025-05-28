@@ -75,6 +75,7 @@ pub enum Version {
     // 由于 v3 的改动，V2.1 需要传入 top_k
     V2_1,
     V3,
+    V4,
 }
 
 #[derive(Debug)]
@@ -187,11 +188,52 @@ impl Speaker {
         Ok(tch::Tensor::cat(&[audio, zero], 0))
     }
 
+    pub fn infer_v4(&self, text_phone_seq: &Tensor, bert_seq: &Tensor) -> anyhow::Result<Tensor> {
+        let top_k = self.top_k.unwrap_or(15);
+        let top_k = Tensor::from_slice(&[top_k]);
+
+        let sample_steps = self.sample_steps.unwrap_or(8);
+        let sample_steps = Tensor::from_slice(&[sample_steps]);
+
+        let is_cpu = bert_seq.device() == Device::Cpu;
+
+        let audio = if !is_cpu {
+            self.gpt_sovits.forward_ts(&[
+                &self.ssl_content.internal_cast_half(false),
+                &self.ref_audio_32k,
+                &self.ref_phone_seq,
+                &text_phone_seq,
+                &self.ref_bert_seq.internal_cast_half(false),
+                &bert_seq.internal_cast_half(false),
+                &top_k,
+                &sample_steps,
+            ])?
+        } else {
+            self.gpt_sovits.forward_ts(&[
+                &self.ssl_content,
+                &self.ref_audio_32k,
+                &self.ref_phone_seq,
+                &text_phone_seq,
+                &self.ref_bert_seq,
+                &bert_seq,
+                &top_k,
+                &sample_steps,
+            ])?
+        };
+
+        let audio = audio.to_dtype(tch::Kind::Float, false, false);
+        let size = 48000.0 * 0.3;
+        let zero = tch::Tensor::zeros([size as i64], (tch::Kind::Float, audio.device()));
+
+        Ok(tch::Tensor::cat(&[audio, zero], 0))
+    }
+
     pub fn infer(&self, text_phone_seq: &Tensor, bert_seq: &Tensor) -> anyhow::Result<Tensor> {
         match self.version {
             Version::V2_0 => self.infer_v2(text_phone_seq, bert_seq),
             Version::V2_1 => self.infer_v2_1(text_phone_seq, bert_seq),
             Version::V3 => self.infer_v3(text_phone_seq, bert_seq),
+            Version::V4 => self.infer_v4(text_phone_seq, bert_seq),
         }
     }
 }
@@ -411,6 +453,33 @@ impl GPTSovits {
             self.speakers.insert(name.to_string(), speaker);
             Ok(())
         })
+    }
+
+    pub fn create_speaker_v4(
+        &mut self,
+        name: &str,
+        gpt_sovits_path: &str,
+        ref_audio_samples: &[f32],
+        ref_audio_sr: usize,
+        ref_text: &str,
+        top_k: Option<i64>,
+        sample_steps: Option<i64>,
+    ) -> anyhow::Result<()> {
+        // v3 和 v4 只有输出的采样率不同，输入相同
+        self.create_speaker_v3(
+            name,
+            gpt_sovits_path,
+            ref_audio_samples,
+            ref_audio_sr,
+            ref_text,
+            top_k,
+            sample_steps,
+        )?;
+        self.speakers
+            .get_mut(name)
+            .ok_or_else(|| anyhow::anyhow!("speaker not found"))?
+            .version = Version::V4;
+        Ok(())
     }
 
     pub fn resample(&self, audio: &Tensor, sr: usize, target_sr: usize) -> anyhow::Result<Tensor> {
