@@ -1,11 +1,13 @@
 use std::{collections::HashMap, str::FromStr, sync::Arc, usize};
 
+use gsv::v4::StreamSpeakerV4;
 use tch::{IValue, Tensor};
 use text::{g2p_en::G2PEnConverter, g2p_jp::G2PJpConverter, g2pw::G2PWConverter, CNBertModel};
 
 pub mod symbols;
 pub mod text;
 pub use tch::Device;
+pub mod gsv;
 
 pub struct GPTSovitsConfig {
     pub cn_setting: Option<(String, String)>,
@@ -64,6 +66,8 @@ impl GPTSovitsConfig {
             ssl,
             jieba: jieba_rs::Jieba::new(),
             speakers: HashMap::new(),
+            stream_speaker: HashMap::new(),
+
             enable_jp: self.enable_jp,
         })
     }
@@ -248,6 +252,7 @@ pub struct GPTSovits {
     ssl: tch::CModule,
 
     speakers: HashMap<String, Speaker>,
+    stream_speaker: HashMap<String, StreamSpeakerV4>,
 
     jieba: jieba_rs::Jieba,
 
@@ -274,6 +279,7 @@ impl GPTSovits {
             device,
             symbols,
             speakers: HashMap::new(),
+            stream_speaker: HashMap::new(),
             ssl,
             jieba,
             enable_jp,
@@ -482,6 +488,67 @@ impl GPTSovits {
         Ok(())
     }
 
+    pub fn create_stream_speaker_v4(
+        &mut self,
+        name: &str,
+        gpt_sovits_path: &str,
+        cfm_path: &str,
+        hifigan_path: &str,
+        ref_audio_samples: &[f32],
+        ref_audio_sr: usize,
+        ref_text: &str,
+        top_k: Option<i64>,
+        sample_steps: Option<i64>,
+    ) -> anyhow::Result<()> {
+        tch::no_grad(|| {
+            let mut gpt_sovits_v4_half =
+                tch::CModule::load_on_device(gpt_sovits_path, self.device)?;
+            gpt_sovits_v4_half.set_eval();
+
+            let mut cfm = tch::CModule::load_on_device(cfm_path, self.device)?;
+            cfm.set_eval();
+
+            let mut hifigan = tch::CModule::load_on_device(hifigan_path, self.device)?;
+            hifigan.set_eval();
+
+            // 避免句首吞字
+            let ref_text = if !ref_text.ends_with(['。', '.']) {
+                ref_text.to_string() + "."
+            } else {
+                ref_text.to_string()
+            };
+
+            let mut ref_audio = Tensor::from_slice(ref_audio_samples)
+                .to_device(self.device)
+                .unsqueeze(0);
+            if self.device == Device::Mps {
+                ref_audio = ref_audio.totype(tch::Kind::Half);
+            }
+
+            let ref_audio_16k = self.resample(&ref_audio, ref_audio_sr, 16000)?;
+            let ref_audio_32k = self.resample(&ref_audio, ref_audio_sr, 32000)?;
+
+            let ssl_content = self.ssl.forward_ts(&[&ref_audio_16k])?;
+
+            let (ref_phone_seq, ref_bert_seq) = text::get_phone_and_bert(self, &ref_text)?;
+
+            let speaker = StreamSpeakerV4::new(
+                Arc::new(gpt_sovits_v4_half),
+                Arc::new(cfm),
+                Arc::new(hifigan),
+                ssl_content,
+                ref_audio_32k,
+                ref_phone_seq,
+                ref_bert_seq,
+                top_k,
+                sample_steps,
+            )?;
+
+            self.stream_speaker.insert(name.to_string(), speaker);
+            Ok(())
+        })
+    }
+
     pub fn resample(&self, audio: &Tensor, sr: usize, target_sr: usize) -> anyhow::Result<Tensor> {
         tch::no_grad(|| {
             let resample = self.ssl.method_is(
@@ -509,7 +576,7 @@ impl GPTSovits {
         Ok(())
     }
 
-    /// Only V3 support sample_steps
+    /// Only V3 V4 support sample_steps
     pub fn set_sample_steps(
         &mut self,
         speaker: &str,
@@ -543,6 +610,25 @@ impl GPTSovits {
             let (phone_seq, bert_seq) = text::get_phone_and_bert(self, target_text)?;
             let audio = speaker.infer(&phone_seq, &bert_seq)?;
             Ok(audio)
+        })
+    }
+
+    pub fn stream_infer(
+        &self,
+        speaker: &str,
+        target_text: &str,
+        chunk_len: i64,
+        callback: impl FnMut(tch::Tensor) -> anyhow::Result<()>,
+    ) -> anyhow::Result<()> {
+        tch::no_grad(|| {
+            let speaker = self
+                .stream_speaker
+                .get(speaker)
+                .ok_or_else(|| anyhow::anyhow!("speaker not found"))?;
+
+            let (phone_seq, bert_seq) = text::get_phone_and_bert(self, target_text)?;
+            speaker.infer(&phone_seq, &bert_seq, chunk_len, callback)?;
+            Ok(())
         })
     }
 
