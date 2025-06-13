@@ -80,6 +80,7 @@ pub enum Version {
     V2_1,
     V3,
     V4,
+    V2Pro,
 }
 
 #[derive(Debug)]
@@ -150,6 +151,31 @@ impl Speaker {
         ])?;
 
         Ok(audio)
+    }
+
+    pub fn infer_v2_pro(
+        &self,
+        text_phone_seq: &Tensor,
+        bert_seq: &Tensor,
+    ) -> anyhow::Result<Tensor> {
+        let top_k = self.top_k.unwrap_or(15);
+        let top_k = Tensor::from_slice(&[top_k]);
+
+        let audio = self.gpt_sovits.forward_ts(&[
+            &self.ssl_content,
+            &self.ref_audio_32k,
+            &self.ref_phone_seq,
+            &text_phone_seq,
+            &self.ref_bert_seq,
+            &bert_seq.internal_cast_half(false),
+            &top_k,
+        ])?;
+
+        let audio = audio.to_dtype(tch::Kind::Float, false, false);
+        let size = 32000.0 * 0.3;
+        let zero = tch::Tensor::zeros([size as i64], (tch::Kind::Float, audio.device()));
+
+        Ok(tch::Tensor::cat(&[audio, zero], 0))
     }
 
     pub fn infer_v3(&self, text_phone_seq: &Tensor, bert_seq: &Tensor) -> anyhow::Result<Tensor> {
@@ -238,6 +264,7 @@ impl Speaker {
             Version::V2_1 => self.infer_v2_1(text_phone_seq, bert_seq),
             Version::V3 => self.infer_v3(text_phone_seq, bert_seq),
             Version::V4 => self.infer_v4(text_phone_seq, bert_seq),
+            Version::V2Pro => self.infer_v2_pro(text_phone_seq, bert_seq),
         }
     }
 }
@@ -399,6 +426,61 @@ impl GPTSovits {
                 ref_phone_seq,
                 ref_bert_seq,
                 version: Version::V2_1,
+                top_k,
+                sample_steps: None,
+            };
+
+            self.speakers.insert(name.to_string(), speaker);
+            Ok(())
+        })
+    }
+
+    pub fn create_speaker_v2_pro(
+        &mut self,
+        name: &str,
+        gpt_sovits_path: &str,
+        ref_audio_samples: &[f32],
+        ref_audio_sr: usize,
+        ref_text: &str,
+        top_k: Option<i64>,
+    ) -> anyhow::Result<()> {
+        tch::no_grad(|| {
+            let gpt_sovits = self.find_gpt_sovits_by_path_or_load(gpt_sovits_path)?;
+
+            // 避免句首吞字
+            let ref_text = if !ref_text.ends_with(['。', '.']) {
+                ref_text.to_string() + "."
+            } else {
+                ref_text.to_string()
+            };
+
+            let ref_audio = Tensor::from_slice(ref_audio_samples)
+                .to_device(self.device)
+                .unsqueeze(0);
+
+            let ref_audio_16k = self.resample(&ref_audio, ref_audio_sr, 16000)?;
+            let ref_audio_32k = self
+                .resample(&ref_audio, ref_audio_sr, 32000)?
+                .internal_cast_half(false);
+
+            let ssl_content = self
+                .ssl
+                .forward_ts(&[&ref_audio_16k])?
+                .internal_cast_half(false);
+
+            let (ref_phone_seq, ref_bert_seq) = text::get_phone_and_bert(self, &ref_text)?;
+            let ref_bert_seq = ref_bert_seq.internal_cast_half(false);
+
+            let speaker = Speaker {
+                name: name.to_string(),
+                gpt_sovits_path: gpt_sovits_path.to_string(),
+                gpt_sovits,
+                ref_text,
+                ssl_content,
+                ref_audio_32k,
+                ref_phone_seq,
+                ref_bert_seq,
+                version: Version::V2Pro,
                 top_k,
                 sample_steps: None,
             };
