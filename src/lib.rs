@@ -78,7 +78,9 @@ pub enum Version {
     V2_0,
     // 由于 v3 的改动，V2.1 需要传入 top_k
     V2_1,
+    #[deprecated(since = "0.6.0", note = "v3v4 has been abandoned")]
     V3,
+    #[deprecated(since = "0.6.0", note = "v3v4 has been abandoned")]
     V4,
     V2Pro,
 }
@@ -178,6 +180,7 @@ impl Speaker {
         Ok(tch::Tensor::cat(&[audio, zero], 0))
     }
 
+    #[deprecated(since = "0.6.0", note = "v3v4 has been abandoned")]
     pub fn infer_v3(&self, text_phone_seq: &Tensor, bert_seq: &Tensor) -> anyhow::Result<Tensor> {
         let top_k = self.top_k.unwrap_or(15);
         let top_k = Tensor::from_slice(&[top_k]);
@@ -218,6 +221,7 @@ impl Speaker {
         Ok(tch::Tensor::cat(&[audio, zero], 0))
     }
 
+    #[deprecated(since = "0.6.0", note = "v3v4 has been abandoned")]
     pub fn infer_v4(&self, text_phone_seq: &Tensor, bert_seq: &Tensor) -> anyhow::Result<Tensor> {
         let top_k = self.top_k.unwrap_or(15);
         let top_k = Tensor::from_slice(&[top_k]);
@@ -490,6 +494,7 @@ impl GPTSovits {
         })
     }
 
+    #[deprecated(since = "0.6.0", note = "v3v4 has been abandoned")]
     pub fn create_speaker_v3(
         &mut self,
         name: &str,
@@ -543,6 +548,7 @@ impl GPTSovits {
         })
     }
 
+    #[deprecated(since = "0.6.0", note = "v3v4 has been abandoned")]
     pub fn create_speaker_v4(
         &mut self,
         name: &str,
@@ -570,6 +576,7 @@ impl GPTSovits {
         Ok(())
     }
 
+    #[deprecated(since = "0.6.0", note = "v3v4 has been abandoned")]
     pub fn create_stream_speaker_v4(
         &mut self,
         name: &str,
