@@ -428,6 +428,7 @@ pub fn split_text(text: &str, max_chunk_size: usize) -> Vec<&str> {
     r
 }
 
+/// return: (phone_seq, bert_seq)
 pub fn get_phone_and_bert(gpts: &GPTSovits, text: &str) -> anyhow::Result<(Tensor, Tensor)> {
     let mut phone_seq = Vec::new();
     let mut bert_seq = Vec::new();

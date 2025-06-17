@@ -1,9 +1,19 @@
-use std::vec;
+use std::{sync::Arc, vec};
 
-use gpt_sovits_rs::GPTSovitsConfig;
+use gpt_sovits_rs::{gsv, GPTSovitsConfig};
 
 fn main() {
     env_logger::init();
+
+    // let t = tch::Tensor::from_slice(&[2i64, 3, 10]).unsqueeze(0);
+    // let t = t.get(0).get(2);
+
+    // let mut data = [true];
+    // println!("t: {}", t);
+    // println!("x: {}", t.greater(30).is_nonzero());
+    // println!("x: {}", t.greater(1).is_nonzero());
+    // println!("{:?}", data);
+    // return;
 
     // "../python/GPT-SoVITS/onnx/xww/gpt_sovits_model.pt".to_string(),
     let gpt_config = GPTSovitsConfig::new(
@@ -18,63 +28,133 @@ fn main() {
     let device = gpt_sovits_rs::Device::cuda_if_available();
     log::info!("device: {:?}", device);
 
-    let mut gpt_sovits = gpt_config.build(device).unwrap();
+    let gpt_sovits = gpt_config.build(device).unwrap();
 
     // let ref_text = "声音,是有温度的.夜晚的声音,会发光.";
-    let ref_text = "在参加rust春晚的时候，听到有人问了这样一个问题.";
-    let ref_path = "../python/GPT-SoVITS/onnx/xww/ref.wav";
-    let file = std::fs::File::open(ref_path).unwrap();
-    let (head, ref_audio_samples) = wav_io::read_from_file(file).unwrap();
+    // let ref_text = "在参加rust春晚的时候，听到有人问了这样一个问题.";
+    // let ref_path = "../python/GPT-SoVITS/onnx/xww/ref.wav";
+    // let file = std::fs::File::open(ref_path).unwrap();
+    // let (head, ref_audio_samples) = wav_io::read_from_file(file).unwrap();
 
-    log::info!("load wx ref done");
+    // log::info!("load wx ref done");
 
-    gpt_sovits
-        .create_speaker(
-            "xw",
-            "../python/GPT-SoVITS/onnx/xww/gpt_sovits_model.pt",
-            &ref_audio_samples,
-            head.sample_rate as usize,
-            ref_text,
-        )
-        .unwrap();
+    // gpt_sovits
+    //     .create_speaker(
+    //         "xw",
+    //         "../python/GPT-SoVITS/onnx/xww/gpt_sovits_model.pt",
+    //         &ref_audio_samples,
+    //         head.sample_rate as usize,
+    //         ref_text,
+    //     )
+    //     .unwrap();
 
-    log::info!("init wx done");
+    // log::info!("init wx done");
 
     let ref_text = "说真的，这件衣服才配得上本小姐嘛。";
     let ref_path = "../python/GPT-SoVITS/output/denoise_opt/ht/ht.mp4_0000026560_0000147200.wav";
+    // let ref_path = "../python/GPT-SoVITS/onnx/trump/ref.wav";
+    // let ref_text = "It said very simply, we can do it.";
+
     let file = std::fs::File::open(ref_path).unwrap();
-    let (head, ref_audio_samples) = wav_io::read_from_file(file).unwrap();
+    let (head, mut ref_audio_samples) = wav_io::read_from_file(file).unwrap();
+    log::info!("head: {:?}", head);
 
     log::info!("load ht ref done");
 
-    gpt_sovits
-        .create_speaker(
-            "ht",
-            "../python/GPT-SoVITS/onnx/htt/gpt_sovits_model.pt",
-            &ref_audio_samples,
-            head.sample_rate as usize,
-            ref_text,
-        )
-        .unwrap();
+    let ssl = gsv::SSL::new("../python/GPT-SoVITS/onnx/xww/ssl_model.pt", device).unwrap();
+    let t2s = gsv::T2S::new("../python/GPT-SoVITS/streaming/t2s.pt", device).unwrap();
+    let vits = gsv::Vits::new("../python/GPT-SoVITS/streaming/vits.pt", device).unwrap();
 
-    log::info!("init ht done");
-
-    let text = std::fs::read_to_string("./input.txt").unwrap();
-
-    let header = wav_io::new_header(32000, 16, false, true);
-
-    let audio = gpt_sovits.segment_infer("xw", &text, 50).unwrap();
-    let audio2 = gpt_sovits.segment_infer("ht", &text, 50).unwrap();
+    let mut gpt_sovits_ =
+        gpt_sovits_rs::gsv::SpeakerV2Pro::new("ht", t2s, Arc::new(vits), Arc::new(ssl));
 
     log::info!("start write file");
 
-    let output = "out.wav";
-    let output2 = "out2.wav";
+    let text = "这是一个简单的示例，真没想到这么简单就完成了。真的神奇。接下来我们说说狐狸,可能这就是狐狸吧.它有长长的尾巴，尖尖的耳朵，传说中还有九条尾巴。你觉得狐狸神奇吗？。The King and His Stories.Once there was a king. He likes to write stories, but his stories were not good. As people were afraid of him, they all said his stories were good.After reading them, the writer at once turned to the soldiers and said: Take me back to prison, please.";
+    let (text_seq, text_bert) = gpt_sovits_rs::text::get_phone_and_bert(&gpt_sovits, text).unwrap();
+    let text_bert = text_bert.internal_cast_half(false);
 
+    let (ref_seq, ref_bert) =
+        gpt_sovits_rs::text::get_phone_and_bert(&gpt_sovits, ref_text).unwrap();
+    let ref_bert = ref_bert.internal_cast_half(false);
+
+    if head.sample_rate != 32000 {
+        log::info!("ref audio sample rate: {}, need 32000", head.sample_rate);
+        ref_audio_samples = wav_io::resample::linear(ref_audio_samples, 1, head.sample_rate, 32000);
+    }
+
+    let ref_audio_32k = tch::Tensor::from_slice(&ref_audio_samples)
+        .internal_cast_half(false)
+        .to_device(device)
+        .unsqueeze(0);
+
+    let g_ = tch::no_grad_guard();
+
+    let header = wav_io::new_header(32000, 16, false, true);
+
+    let (prompts, refer, sv_emb) = gpt_sovits_.pre_handle_ref(ref_audio_32k).unwrap();
+
+    let st = std::time::Instant::now();
+    let mut stream = gpt_sovits_
+        .stream_infer(
+            (
+                prompts.shallow_clone(),
+                refer.shallow_clone(),
+                sv_emb.shallow_clone(),
+            ),
+            ref_seq.shallow_clone(),
+            text_seq.shallow_clone(),
+            ref_bert.shallow_clone(),
+            text_bert.shallow_clone(),
+            15,
+        )
+        .unwrap();
+
+    let mut audios = Vec::new();
+    let mut n = 0;
+    while let Some(a) = stream.next_chunk().unwrap() {
+        log::info!(
+            "stream chunk: {} {} {:?}",
+            a.size()[0] / 32000,
+            n,
+            st.elapsed()
+        );
+        audios.push(a);
+        n += 1;
+    }
+
+    log::info!("stream done, total chunks: {}", n);
+    let audio = tch::Tensor::cat(&audios, 0).to_device(device);
+    log::info!("stream audio size: {:?}", audio.size());
     let audio_size = audio.size1().unwrap() as usize;
-    let audio2_size = audio2.size1().unwrap() as usize;
+    println!("stream audio size: {}", audio_size);
+    let mut samples = vec![0f32; audio_size];
+    audio.f_copy_data(&mut samples, audio_size).unwrap();
+    println!("start write stream file");
+    let mut file_out = std::fs::File::create("stream_out.wav").unwrap();
+    wav_io::write_to_file(&mut file_out, &header, &samples).unwrap();
+    log::info!("stream write file done");
+
+    let st = std::time::Instant::now();
+    let audio = gpt_sovits_
+        .infer(
+            (
+                prompts.shallow_clone(),
+                refer.shallow_clone(),
+                sv_emb.shallow_clone(),
+            ),
+            ref_seq.shallow_clone(),
+            text_seq.shallow_clone(),
+            ref_bert.shallow_clone(),
+            text_bert.shallow_clone(),
+            15,
+        )
+        .unwrap();
+    log::info!("infer done, cost: {:?}", st.elapsed());
+
+    let output = "out.wav";
+    let audio_size = audio.size1().unwrap() as usize;
     println!("audio size: {}", audio_size);
-    println!("audio2 size: {}", audio2_size);
 
     println!("start save audio {output}");
     let mut samples = vec![0f32; audio_size];
@@ -82,13 +162,5 @@ fn main() {
     println!("start write file {output}");
     let mut file_out = std::fs::File::create(output).unwrap();
     wav_io::write_to_file(&mut file_out, &header, &samples).unwrap();
-    log::info!("write file done");
-
-    println!("start save audio {output2}");
-    let mut samples2 = vec![0f32; audio2_size];
-    audio2.f_copy_data(&mut samples2, audio2_size).unwrap();
-    println!("start write file {output2}");
-    let mut file_out2 = std::fs::File::create(output2).unwrap();
-    wav_io::write_to_file(&mut file_out2, &header, &samples2).unwrap();
     log::info!("write file done");
 }

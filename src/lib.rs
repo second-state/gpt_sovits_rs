@@ -54,6 +54,7 @@ impl GPTSovitsConfig {
 
         let mut ssl = tch::CModule::load_on_device(&self.ssl_path, device).unwrap();
         ssl.set_eval();
+        let ssl = Arc::new(ssl);
 
         Ok(GPTSovits {
             zh_bert: cn_bert,
@@ -276,9 +277,9 @@ pub struct GPTSovits {
     g2pw: G2PWConverter,
     g2p_en: G2PEnConverter,
     g2p_jp: G2PJpConverter,
-    device: tch::Device,
+    pub device: tch::Device,
     symbols: HashMap<String, i64>,
-    ssl: tch::CModule,
+    pub ssl: Arc<tch::CModule>,
 
     speakers: HashMap<String, Speaker>,
 
@@ -295,7 +296,7 @@ impl GPTSovits {
         g2p_jp: G2PJpConverter,
         device: tch::Device,
         symbols: HashMap<String, i64>,
-        ssl: tch::CModule,
+        ssl: Arc<tch::CModule>,
         jieba: jieba_rs::Jieba,
         enable_jp: bool,
     ) -> Self {
