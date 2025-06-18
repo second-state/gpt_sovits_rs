@@ -2,6 +2,7 @@ use std::{
     borrow::Cow,
     collections::{HashMap, LinkedList},
     fmt::Debug,
+    str::FromStr,
     sync::Arc,
 };
 
@@ -9,14 +10,140 @@ use pest::Parser;
 use tch::{Kind, Tensor};
 use tokenizers::Tokenizer;
 
-use crate::GPTSovits;
-
 pub mod g2p_en;
 pub mod g2p_jp;
 pub mod g2pw;
 
 pub mod dict;
 pub mod num;
+
+pub struct G2PConfig {
+    pub cn_setting: Option<(String, String)>,
+    pub g2p_en_path: String,
+    pub ssl_path: String,
+    pub enable_jp: bool,
+}
+
+impl G2PConfig {
+    pub fn new(ssl_path: String, g2p_en_path: String) -> Self {
+        Self {
+            cn_setting: None,
+            g2p_en_path,
+            ssl_path,
+            enable_jp: false,
+        }
+    }
+
+    pub fn with_chinese(mut self, g2pw_path: String, cn_bert_path: String) -> Self {
+        self.cn_setting = Some((g2pw_path, cn_bert_path));
+        self
+    }
+
+    pub fn with_jp(self, enable_jp: bool) -> Self {
+        Self { enable_jp, ..self }
+    }
+
+    pub fn build(&self, device: tch::Device) -> anyhow::Result<G2p> {
+        let (cn_bert, g2pw) = match &self.cn_setting {
+            Some((g2pw_path, cn_bert_path)) => {
+                let tokenizer = tokenizers::Tokenizer::from_str(g2pw::G2PW_TOKENIZER)
+                    .map_err(|e| anyhow::anyhow!("load tokenizer error: {}", e))?;
+                let tokenizer = Arc::new(tokenizer);
+
+                let mut bert = tch::CModule::load_on_device(&cn_bert_path, device)?;
+                bert.set_eval();
+
+                let cn_bert_model = CNBertModel::new(Arc::new(bert), tokenizer.clone());
+                let g2pw =
+                    g2pw::G2PWConverter::new_with_device(g2pw_path, tokenizer.clone(), device)?;
+
+                (cn_bert_model, g2pw)
+            }
+            _ => (CNBertModel::default(), g2pw::G2PWConverter::empty()),
+        };
+
+        Ok(G2p {
+            zh_bert: cn_bert,
+            g2pw,
+            g2p_en: g2p_en::G2PEnConverter::new(&self.g2p_en_path),
+            g2p_jp: g2p_jp::G2PJpConverter::new(),
+            device,
+            symbols: crate::symbols::SYMBOLS.clone(),
+            jieba: jieba_rs::Jieba::new(),
+            enable_jp: self.enable_jp,
+        })
+    }
+}
+
+pub struct G2p {
+    zh_bert: CNBertModel,
+    g2pw: g2pw::G2PWConverter,
+    g2p_en: g2p_en::G2PEnConverter,
+    g2p_jp: g2p_jp::G2PJpConverter,
+    pub device: tch::Device,
+    symbols: HashMap<String, i64>,
+
+    jieba: jieba_rs::Jieba,
+
+    enable_jp: bool,
+}
+
+impl G2p {
+    pub fn new(
+        zh_bert: CNBertModel,
+        g2pw: g2pw::G2PWConverter,
+        g2p_en: g2p_en::G2PEnConverter,
+        g2p_jp: g2p_jp::G2PJpConverter,
+        device: tch::Device,
+        symbols: HashMap<String, i64>,
+        jieba: jieba_rs::Jieba,
+        enable_jp: bool,
+    ) -> Self {
+        Self {
+            zh_bert,
+            g2pw,
+            g2p_en,
+            g2p_jp,
+            device,
+            symbols,
+            jieba,
+            enable_jp,
+        }
+    }
+
+    // pub fn segment_infer(
+    //     &self,
+    //     speaker: &str,
+    //     target_text: &str,
+    //     split_chunk_size: usize,
+    // ) -> anyhow::Result<Tensor> {
+    //     tch::no_grad(|| {
+    //         let mut audios = vec![];
+    //         let split_chunk_size = if split_chunk_size == 0 {
+    //             50
+    //         } else {
+    //             split_chunk_size
+    //         };
+    //         let chunks = crate::text::split_text(target_text, split_chunk_size);
+    //         log::debug!("segment_infer split_text result: {:#?}", chunks);
+    //         for target_text in chunks {
+    //             match self.infer(speaker, target_text) {
+    //                 Ok(audio) => {
+    //                     audios.push(audio);
+    //                 }
+    //                 Err(e) => {
+    //                     log::warn!("SKIP segment_infer chunk:{target_text} error: {:?}", e);
+    //                 }
+    //             }
+    //         }
+    //         if !audios.is_empty() {
+    //             Ok(Tensor::cat(&audios, 0))
+    //         } else {
+    //             Err(anyhow::anyhow!("no audio generated"))
+    //         }
+    //     })
+    // }
+}
 
 #[inline]
 fn get_phone_symbol(symbols: &HashMap<String, i64>, ph: &str) -> i64 {
@@ -429,19 +556,19 @@ pub fn split_text(text: &str, max_chunk_size: usize) -> Vec<&str> {
 }
 
 /// return: (phone_seq, bert_seq)
-pub fn get_phone_and_bert(gpts: &GPTSovits, text: &str) -> anyhow::Result<(Tensor, Tensor)> {
+pub fn get_phone_and_bert(g2p: &G2p, text: &str) -> anyhow::Result<(Tensor, Tensor)> {
     let mut phone_seq = Vec::new();
     let mut bert_seq = Vec::new();
 
-    let mut phone_builder = PhoneBuilder::new(gpts.enable_jp);
-    phone_builder.push_text(&gpts.jieba, text);
+    let mut phone_builder = PhoneBuilder::new(g2p.enable_jp);
+    phone_builder.push_text(&g2p.jieba, text);
     if !text.ends_with(['。', '.', '?', '？', '!', '！']) {
         phone_builder.push_punctuation(".");
     }
 
     fn helper<I: IntoIterator<Item = Sentence>>(
         i: I,
-        gpts: &GPTSovits,
+        g2p: &G2p,
         phone_seq: &mut Vec<Tensor>,
         bert_seq: &mut Vec<Tensor>,
     ) -> anyhow::Result<()> {
@@ -455,8 +582,8 @@ pub fn get_phone_and_bert(gpts: &GPTSovits, text: &str) -> anyhow::Result<(Tenso
                         continue;
                     }
 
-                    zh.generate_pinyin(gpts);
-                    match zh.build_phone_and_bert(gpts) {
+                    zh.generate_pinyin(g2p);
+                    match zh.build_phone_and_bert(g2p) {
                         Ok((t, bert)) => {
                             phone_seq.push(t);
                             bert_seq.push(bert);
@@ -474,8 +601,8 @@ pub fn get_phone_and_bert(gpts: &GPTSovits, text: &str) -> anyhow::Result<(Tenso
                 Sentence::En(mut en) => {
                     log::trace!("en text: {:?}", en.en_text);
                     log::trace!("en phones: {:?}", en.phones);
-                    en.generate_phones(gpts);
-                    match en.build_phone_and_bert(gpts) {
+                    en.generate_phones(g2p);
+                    match en.build_phone_and_bert(g2p) {
                         Ok((t, bert)) => {
                             phone_seq.push(t);
                             bert_seq.push(bert);
@@ -492,7 +619,7 @@ pub fn get_phone_and_bert(gpts: &GPTSovits, text: &str) -> anyhow::Result<(Tenso
                 }
                 Sentence::Jp(jp) => {
                     log::trace!("jp text: {:?}", jp.text);
-                    match jp.build_phone_and_bert(gpts) {
+                    match jp.build_phone_and_bert(g2p) {
                         Ok((t, bert)) => {
                             phone_seq.push(t);
                             bert_seq.push(bert);
@@ -507,13 +634,13 @@ pub fn get_phone_and_bert(gpts: &GPTSovits, text: &str) -> anyhow::Result<(Tenso
                         }
                     }
                 }
-                Sentence::Num(num) => helper(num.to_phone_sentence()?, gpts, phone_seq, bert_seq)?,
+                Sentence::Num(num) => helper(num.to_phone_sentence()?, g2p, phone_seq, bert_seq)?,
             }
         }
         Ok(())
     }
 
-    helper(phone_builder.sentence, gpts, &mut phone_seq, &mut bert_seq)?;
+    helper(phone_builder.sentence, g2p, &mut phone_seq, &mut bert_seq)?;
 
     if phone_seq.is_empty() {
         return Err(anyhow::anyhow!("{text} get phone_seq is empty"));
@@ -522,8 +649,8 @@ pub fn get_phone_and_bert(gpts: &GPTSovits, text: &str) -> anyhow::Result<(Tenso
         return Err(anyhow::anyhow!("{text} get bert_seq is empty"));
     }
 
-    let phone_seq = Tensor::cat(&phone_seq, 1).to(gpts.device);
-    let bert_seq = Tensor::cat(&bert_seq, 0).to(gpts.device);
+    let phone_seq = Tensor::cat(&phone_seq, 1).to(g2p.device);
+    let bert_seq = Tensor::cat(&bert_seq, 0).to(g2p.device);
 
     log::debug!(
         "phone_seq: {:?}",
@@ -624,12 +751,12 @@ struct ZhSentence {
 }
 
 impl ZhSentence {
-    fn generate_pinyin(&mut self, gpts: &GPTSovits) {
-        let pinyin = match gpts.g2pw.get_pinyin(&self.zh_text) {
+    fn generate_pinyin(&mut self, g2p: &G2p) {
+        let pinyin = match g2p.g2pw.get_pinyin(&self.zh_text) {
             Ok(pinyin) => pinyin,
             Err(e) => {
                 log::warn!("get pinyin error: {}. try simple plan", e);
-                gpts.g2pw.simple_get_pinyin(&self.zh_text)
+                g2p.g2pw.simple_get_pinyin(&self.zh_text)
             }
         };
 
@@ -659,27 +786,27 @@ impl ZhSentence {
             match p {
                 g2pw::G2PWOut::Pinyin(p) => {
                     let (s, y) = split_zh_ph(&p);
-                    self.phones_ids.push(get_phone_symbol(&gpts.symbols, s));
-                    self.phones_ids.push(get_phone_symbol(&gpts.symbols, y));
+                    self.phones_ids.push(get_phone_symbol(&g2p.symbols, s));
+                    self.phones_ids.push(get_phone_symbol(&g2p.symbols, y));
                     self.word2ph.push(2);
                 }
                 g2pw::G2PWOut::RawChar(c) => {
                     self.phones_ids
-                        .push(get_phone_symbol(&gpts.symbols, c.to_string().as_str()));
+                        .push(get_phone_symbol(&g2p.symbols, c.to_string().as_str()));
                     self.word2ph.push(1);
                 }
             }
         }
     }
 
-    fn build_phone_and_bert(&self, gpts: &GPTSovits) -> anyhow::Result<(Tensor, Tensor)> {
-        let bert = gpts
+    fn build_phone_and_bert(&self, g2p: &G2p) -> anyhow::Result<(Tensor, Tensor)> {
+        let bert = g2p
             .zh_bert
-            .get_text_bert(&self.zh_text, &self.word2ph, gpts.device)
+            .get_text_bert(&self.zh_text, &self.word2ph, g2p.device)
             .map_err(|e| anyhow::anyhow!("get_text_bert error: {}", e))?;
 
         let t = Tensor::from_slice(&self.phones_ids)
-            .to_device(gpts.device)
+            .to_device(g2p.device)
             .unsqueeze(0);
 
         Ok((t, bert))
@@ -711,9 +838,9 @@ struct EnSentence {
 const SEPARATOR: &'static str = " ";
 
 impl EnSentence {
-    fn generate_phones(&mut self, gpts: &GPTSovits) {
+    fn generate_phones(&mut self, g2p: &G2p) {
         log::trace!("EnSentence text: {:?}", self.en_text);
-        let symbols = &gpts.symbols;
+        let symbols = &g2p.symbols;
         for word in &self.en_text {
             match word {
                 EnWord::Word(word) => {
@@ -724,7 +851,7 @@ impl EnSentence {
                         }
                     } else if let (false, Ok(v)) = (
                         word.chars().all(char::is_uppercase),
-                        gpts.g2p_en.get_phoneme(&word),
+                        g2p.g2p_en.get_phoneme(&word),
                     ) {
                         for ph in v.split_ascii_whitespace() {
                             self.phones.push(Cow::Owned(ph.to_string()));
@@ -735,7 +862,7 @@ impl EnSentence {
                             let mut b = [0; 4];
                             let c = c.encode_utf8(&mut b);
 
-                            if let Ok(v) = gpts.g2p_en.get_phoneme(&c) {
+                            if let Ok(v) = g2p.g2p_en.get_phoneme(&c) {
                                 for ph in v.split_ascii_whitespace() {
                                     self.phones.push(Cow::Owned(ph.to_string()));
                                     self.phones_ids.push(get_phone_symbol(symbols, ph));
@@ -753,13 +880,13 @@ impl EnSentence {
         log::trace!("EnSentence phones: {:?}", self.phones);
     }
 
-    fn build_phone_and_bert(&self, gpts: &GPTSovits) -> anyhow::Result<(Tensor, Tensor)> {
+    fn build_phone_and_bert(&self, g2p: &G2p) -> anyhow::Result<(Tensor, Tensor)> {
         let t = Tensor::from_slice(&self.phones_ids)
-            .to_device(gpts.device)
+            .to_device(g2p.device)
             .unsqueeze(0);
         let bert = Tensor::zeros(
             &[self.phones_ids.len() as i64, 1024],
-            (Kind::Float, gpts.device),
+            (Kind::Float, g2p.device),
         );
 
         Ok((t, bert))
@@ -772,18 +899,18 @@ struct JpSentence {
 }
 
 impl JpSentence {
-    fn build_phone_and_bert(&self, gpts: &GPTSovits) -> anyhow::Result<(Tensor, Tensor)> {
-        let phones = gpts.g2p_jp.g2p(self.text.as_str());
+    fn build_phone_and_bert(&self, g2p: &G2p) -> anyhow::Result<(Tensor, Tensor)> {
+        let phones = g2p.g2p_jp.g2p(self.text.as_str());
         log::trace!("JpSentence phones: {:?}", phones);
-        let symbols = &gpts.symbols;
+        let symbols = &g2p.symbols;
         let phone_ids = phones
             .into_iter()
             .map(|v| get_phone_symbol(symbols, v.as_str()))
             .collect::<Vec<_>>();
         let t = Tensor::from_slice(&phone_ids)
-            .to_device(gpts.device)
+            .to_device(g2p.device)
             .unsqueeze(0);
-        let bert = Tensor::zeros(&[phone_ids.len() as i64, 1024], (Kind::Float, gpts.device));
+        let bert = Tensor::zeros(&[phone_ids.len() as i64, 1024], (Kind::Float, g2p.device));
         Ok((t, bert))
     }
 }
