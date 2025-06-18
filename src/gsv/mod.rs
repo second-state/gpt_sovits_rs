@@ -493,6 +493,8 @@ impl<'a> StreamSpeaker<'a> {
 }
 
 impl SpeakerV2Pro {
+    /// Create a new streaming inference session.
+    /// This method is still experimental, and its current performance has some flaws.
     pub fn stream_infer<'a>(
         &'a mut self,
         ref_params: (Tensor, Tensor, Tensor),

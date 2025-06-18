@@ -11,6 +11,7 @@ use tch::{Kind, Tensor};
 use tokenizers::Tokenizer;
 
 pub mod g2p_en;
+#[cfg(feature = "enable_jp")]
 pub mod g2p_jp;
 pub mod g2pw;
 
@@ -20,16 +21,14 @@ pub mod num;
 pub struct G2PConfig {
     pub cn_setting: Option<(String, String)>,
     pub g2p_en_path: String,
-    pub ssl_path: String,
     pub enable_jp: bool,
 }
 
 impl G2PConfig {
-    pub fn new(ssl_path: String, g2p_en_path: String) -> Self {
+    pub fn new(g2p_en_path: String) -> Self {
         Self {
             cn_setting: None,
             g2p_en_path,
-            ssl_path,
             enable_jp: false,
         }
     }
@@ -39,6 +38,7 @@ impl G2PConfig {
         self
     }
 
+    #[cfg(feature = "enable_jp")]
     pub fn with_jp(self, enable_jp: bool) -> Self {
         Self { enable_jp, ..self }
     }
@@ -66,6 +66,7 @@ impl G2PConfig {
             zh_bert: cn_bert,
             g2pw,
             g2p_en: g2p_en::G2PEnConverter::new(&self.g2p_en_path),
+            #[cfg(feature = "enable_jp")]
             g2p_jp: g2p_jp::G2PJpConverter::new(),
             device,
             symbols: crate::symbols::SYMBOLS.clone(),
@@ -79,6 +80,7 @@ pub struct G2p {
     zh_bert: CNBertModel,
     g2pw: g2pw::G2PWConverter,
     g2p_en: g2p_en::G2PEnConverter,
+    #[cfg(feature = "enable_jp")]
     g2p_jp: g2p_jp::G2PJpConverter,
     pub device: tch::Device,
     symbols: HashMap<String, i64>,
@@ -93,7 +95,7 @@ impl G2p {
         zh_bert: CNBertModel,
         g2pw: g2pw::G2PWConverter,
         g2p_en: g2p_en::G2PEnConverter,
-        g2p_jp: g2p_jp::G2PJpConverter,
+        #[cfg(feature = "enable_jp")] g2p_jp: g2p_jp::G2PJpConverter,
         device: tch::Device,
         symbols: HashMap<String, i64>,
         jieba: jieba_rs::Jieba,
@@ -103,6 +105,7 @@ impl G2p {
             zh_bert,
             g2pw,
             g2p_en,
+            #[cfg(feature = "enable_jp")]
             g2p_jp,
             device,
             symbols,
@@ -617,6 +620,7 @@ pub fn get_phone_and_bert(g2p: &G2p, text: &str) -> anyhow::Result<(Tensor, Tens
                         }
                     };
                 }
+                #[cfg(feature = "enable_jp")]
                 Sentence::Jp(jp) => {
                     log::trace!("jp text: {:?}", jp.text);
                     match jp.build_phone_and_bert(g2p) {
@@ -893,11 +897,13 @@ impl EnSentence {
     }
 }
 
+#[cfg(feature = "enable_jp")]
 #[derive(Debug)]
 struct JpSentence {
     text: String,
 }
 
+#[cfg(feature = "enable_jp")]
 impl JpSentence {
     fn build_phone_and_bert(&self, g2p: &G2p) -> anyhow::Result<(Tensor, Tensor)> {
         let phones = g2p.g2p_jp.g2p(self.text.as_str());
@@ -961,6 +967,7 @@ impl NumSentence {
 enum Sentence {
     Zh(ZhSentence),
     En(EnSentence),
+    #[cfg(feature = "enable_jp")]
     Jp(JpSentence),
     Num(NumSentence),
 }
@@ -1038,6 +1045,7 @@ impl PhoneBuilder {
             } else if t.is_ascii() {
                 self.push_en_word(t);
             } else if self.enable_jp && is_jp_kana(t) {
+                #[cfg(feature = "enable_jp")]
                 self.push_jp_word(t);
             } else {
                 log::warn!("skip word: {:?} in {}", t, text);
@@ -1179,6 +1187,7 @@ impl PhoneBuilder {
         };
     }
 
+    #[cfg(feature = "enable_jp")]
     pub fn push_jp_word(&mut self, word: &str) {
         match self.sentence.back_mut() {
             Some(Sentence::Jp(jp)) => {
@@ -1250,6 +1259,7 @@ fn test_cut() {
                 println!("phones: {:?}", en.phones);
                 println!("en_text: {:?}", en.en_text);
             }
+            #[cfg(feature = "enable_jp")]
             Sentence::Jp(_) => unreachable!(),
             Sentence::Num(num) => {
                 println!("###num###");
@@ -1267,7 +1277,9 @@ fn test_cut() {
                             println!("phones: {:?}", en.phones);
                             println!("en_text: {:?}", en.en_text);
                         }
-                        Sentence::Jp(_) | Sentence::Num(_) => unreachable!(),
+                        Sentence::Num(_) => unreachable!(),
+                        #[cfg(feature = "enable_jp")]
+                        Sentence::Jp(_) => unreachable!(),
                     }
                 }
             }
@@ -1314,6 +1326,7 @@ fn test_jieba() {
     }
 }
 
+#[cfg(feature = "enable_jp")]
 #[test]
 fn test_jp_enabled() {
     use jieba_rs::Jieba;
@@ -1355,6 +1368,7 @@ fn test_jp_enabled() {
     assert!(iter.next().is_none());
 }
 
+#[cfg(feature = "enable_jp")]
 #[test]
 fn test_jp_disabled() {
     use jieba_rs::Jieba;
