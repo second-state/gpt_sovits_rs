@@ -9,6 +9,7 @@ pub struct T2S {
 }
 
 unsafe impl Send for T2S {}
+unsafe impl Sync for T2S {}
 
 impl T2S {
     pub const EOS: i64 = 1024;
@@ -24,7 +25,7 @@ impl T2S {
 
     /// return: (y_len, y, xy_pos, k_cache, v_cache)
     pub fn pre_infer(
-        &mut self,
+        &self,
         prompts: Tensor,
         ref_seq: Tensor,
         text_seq: Tensor,
@@ -91,7 +92,7 @@ impl T2S {
     ///
     /// return: (y, xy_pos, is_end, k_cache, v_cache)
     pub fn decode_next_token(
-        &mut self,
+        &self,
         idx: i64,
         top_k: i64,
         y_len: i64,
@@ -308,7 +309,7 @@ impl SpeakerV2Pro {
 
     /// return : (prompts, refer, sv_emb)
     pub fn pre_handle_ref(
-        &mut self,
+        &self,
         ref_audio_32k: Tensor,
     ) -> anyhow::Result<(Tensor, Tensor, Tensor)> {
         let ref_audio_16k = self.ssl.resample(&ref_audio_32k, 32000, 16000)?;
@@ -325,7 +326,7 @@ impl SpeakerV2Pro {
     }
 
     pub fn infer(
-        &mut self,
+        &self,
         ref_params: (Tensor, Tensor, Tensor),
         ref_seq: Tensor,
         text_seq: Tensor,
@@ -375,7 +376,7 @@ impl SpeakerV2Pro {
 }
 
 pub struct StreamSpeaker<'a> {
-    speaker: &'a mut SpeakerV2Pro,
+    speaker: &'a SpeakerV2Pro,
     idx: i64,
     last_chunk_idx: i64,
     output_n: usize,
@@ -501,7 +502,7 @@ impl SpeakerV2Pro {
     /// Create a new streaming inference session.
     /// This method is still experimental, and its current performance has some flaws.
     pub fn stream_infer<'a>(
-        &'a mut self,
+        &'a self,
         ref_params: (Tensor, Tensor, Tensor),
         ref_seq: Tensor,
         text_seq: Tensor,

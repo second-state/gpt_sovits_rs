@@ -65,8 +65,7 @@ fn main() {
     let t2s = gsv::T2S::new("../python/GPT-SoVITS/streaming/t2s.pt", device).unwrap();
     let vits = gsv::Vits::new("../python/GPT-SoVITS/streaming/vits.pt", device).unwrap();
 
-    let mut speaker =
-        gpt_sovits_rs::gsv::SpeakerV2Pro::new("ht", t2s, Arc::new(vits), Arc::new(ssl));
+    let speaker = gpt_sovits_rs::gsv::SpeakerV2Pro::new("ht", t2s, Arc::new(vits), Arc::new(ssl));
 
     log::info!("start write file");
 

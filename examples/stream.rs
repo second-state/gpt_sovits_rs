@@ -35,8 +35,7 @@ fn main() {
     let t2s = gsv::T2S::new("path/to/t2s.pt", device).unwrap();
     let vits = gsv::Vits::new("path/to/vits.pt", device).unwrap();
 
-    let mut speaker =
-        gpt_sovits_rs::gsv::SpeakerV2Pro::new("ht", t2s, Arc::new(vits), Arc::new(ssl));
+    let speaker = gpt_sovits_rs::gsv::SpeakerV2Pro::new("ht", t2s, Arc::new(vits), Arc::new(ssl));
 
     log::info!("start write file");
 
