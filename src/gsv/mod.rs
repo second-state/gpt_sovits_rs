@@ -286,15 +286,26 @@ impl SSL {
     }
 }
 
+#[derive(Clone)]
 pub struct SpeakerV2Pro {
     pub name: String,
-    pub t2s: T2S,
+    pub t2s: Arc<T2S>,
     pub vits: Arc<Vits>,
     pub ssl: Arc<SSL>,
 }
 
+impl std::fmt::Debug for SpeakerV2Pro {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "SpeakerV2Pro(name: {},t2s: {}, vits: {})",
+            self.name, self.t2s.file_path, self.vits.file_path,
+        )
+    }
+}
+
 impl SpeakerV2Pro {
-    pub fn new(name: &str, t2s: T2S, vits: Arc<Vits>, ssl: Arc<SSL>) -> Self {
+    pub fn new(name: &str, t2s: Arc<T2S>, vits: Arc<Vits>, ssl: Arc<SSL>) -> Self {
         Self {
             name: name.to_string(),
             t2s,

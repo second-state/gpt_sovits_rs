@@ -1,4 +1,4 @@
-use std::{sync::Arc, vec};
+use std::sync::Arc;
 
 use gpt_sovits_rs::{gsv, text::G2PConfig};
 
@@ -35,7 +35,8 @@ fn main() {
     let t2s = gsv::T2S::new("path/to/t2s.pt", device).unwrap();
     let vits = gsv::Vits::new("path/to/vits.pt", device).unwrap();
 
-    let speaker = gpt_sovits_rs::gsv::SpeakerV2Pro::new("ht", t2s, Arc::new(vits), Arc::new(ssl));
+    let speaker =
+        gpt_sovits_rs::gsv::SpeakerV2Pro::new("ht", Arc::new(t2s), Arc::new(vits), Arc::new(ssl));
 
     log::info!("start write file");
 
