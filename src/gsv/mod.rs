@@ -447,7 +447,6 @@ impl<'a> StreamSpeaker<'a> {
                 self.is_end = true;
             }
 
-            let st = std::time::Instant::now();
             if last_token < max_cut_token
                 && (idx - self.last_chunk_idx > {
                     if self.output_n >= chunk_token_size {
@@ -466,7 +465,6 @@ impl<'a> StreamSpeaker<'a> {
             }
 
             if (idx == cut_idx) || self.is_end {
-                log::debug!("{idx} * {:?}", st.elapsed());
                 let audio = self.speaker.vits.decode(
                     self.y.slice(1, -idx, None, 1).unsqueeze(0),
                     self.text_seq.shallow_clone(),
@@ -502,8 +500,6 @@ impl<'a> StreamSpeaker<'a> {
                 self.cache = Some((k_cache, v_cache));
 
                 return Ok(Some(audio));
-            } else {
-                log::debug!("{idx} {:?}", st.elapsed());
             }
         }
     }
