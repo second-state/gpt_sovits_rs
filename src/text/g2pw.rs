@@ -310,7 +310,7 @@ impl Debug for G2PWOut {
 pub struct G2PWConverter {
     model: Option<Arc<tch::CModule>>,
     tokenizers: Option<Arc<tokenizers::Tokenizer>>,
-    device: crate::Device,
+    device: tch::Device,
 }
 
 pub fn str_is_chinese(s: &str) -> bool {
@@ -328,22 +328,22 @@ impl G2PWConverter {
         Self {
             model: None,
             tokenizers: None,
-            device: crate::Device::Cpu,
+            device: tch::Device::Cpu,
         }
     }
 
     pub fn new(model_path: &str, tokenizer: Arc<tokenizers::Tokenizer>) -> anyhow::Result<Self> {
-        let device = crate::Device::Cpu;
+        let device = tch::Device::Cpu;
         Self::new_with_device(model_path, tokenizer, device)
     }
 
     pub fn new_with_device(
         model_path: &str,
         tokenizer: Arc<tokenizers::Tokenizer>,
-        mut device: crate::Device,
+        mut device: tch::Device,
     ) -> anyhow::Result<Self> {
-        if device == crate::Device::Mps {
-            device = crate::Device::Cpu;
+        if device == tch::Device::Mps {
+            device = tch::Device::Cpu;
         }
 
         let mut model = tch::CModule::load_on_device(model_path, device)?;

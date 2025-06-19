@@ -12,7 +12,7 @@ fn main() {
         "path/to/bert_model.pt".to_string(),
     );
 
-    let device = gpt_sovits_rs::Device::cuda_if_available();
+    let device = tch::Device::cuda_if_available();
     log::info!("device: {:?}", device);
 
     let g2p = g2p_conf.build(device).unwrap();

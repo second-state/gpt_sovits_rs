@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use gpt_sovits_rs::{gsv, text::G2PConfig};
+use gpt_sovits_rs::{gsv, tch, text::G2PConfig};
 
 fn main() {
     env_logger::init();
@@ -21,7 +21,7 @@ fn main() {
         "../python/GPT-SoVITS/onnx/bert_model.pt".to_string(),
     );
 
-    let device = gpt_sovits_rs::Device::cuda_if_available();
+    let device = tch::Device::cuda_if_available();
     log::info!("device: {:?}", device);
 
     let g2p = g2p_conf.build(device).unwrap();

@@ -18,16 +18,16 @@ static EOS_TOKEN_ID: u32 = 2;
 pub struct G2PEnConverter {
     model: Arc<tch::CModule>,
     tokenizer: Arc<tokenizers::Tokenizer>,
-    device: crate::Device,
+    device: tch::Device,
 }
 
 impl G2PEnConverter {
     pub fn new(model_path: &str) -> Self {
-        let device = crate::Device::Cpu;
+        let device = tch::Device::Cpu;
         Self::new_with_device(model_path, device)
     }
 
-    fn new_with_device(model_path: &str, device: crate::Device) -> Self {
+    fn new_with_device(model_path: &str, device: tch::Device) -> Self {
         let tokenizer = tokenizers::Tokenizer::from_str(MINI_BART_G2P_TOKENIZER)
             .map_err(|e| anyhow::anyhow!("load g2p_en tokenizer error: {}", e))
             .unwrap();
