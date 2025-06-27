@@ -810,6 +810,7 @@ impl ZhSentence {
 enum EnWord {
     Word(String),
     Punctuation(&'static str),
+    A,
 }
 
 impl Debug for EnWord {
@@ -817,6 +818,7 @@ impl Debug for EnWord {
         match self {
             EnWord::Word(w) => write!(f, "\"{}\"", w),
             EnWord::Punctuation(p) => write!(f, "\"{}\"", p),
+            EnWord::A => write!(f, "a"),
         }
     }
 }
@@ -863,6 +865,10 @@ impl EnSentence {
                             }
                         }
                     }
+                }
+                EnWord::A => {
+                    self.phones.push(Cow::Borrowed("AH0"));
+                    self.phones_ids.push(get_phone_symbol(symbols, "AH0"));
                 }
                 EnWord::Punctuation(p) => {
                     self.phones.push(Cow::Borrowed(p));
@@ -1055,12 +1061,12 @@ impl PhoneBuilder {
                         .en_text
                         .last()
                         .map(|w| match w {
-                            EnWord::Word(p) => p == "a",
+                            EnWord::Word(p) => p == "a" || p == "A",
                             _ => false,
                         })
                         .unwrap_or(false)
                 {
-                    return;
+                    en.en_text.last_mut().map(|w| *w = EnWord::A);
                 }
                 en.en_text.push(EnWord::Punctuation(p));
             }
@@ -1096,21 +1102,6 @@ impl PhoneBuilder {
                             if let EnWord::Punctuation(p) = p {
                                 w.push_str(p);
                             }
-                            w.push_str(&word);
-                        }
-                    });
-                } else if en
-                    .en_text
-                    .last()
-                    .map(|w| match w {
-                        EnWord::Word(w) => w == "a",
-                        _ => false,
-                    })
-                    .unwrap_or(false)
-                {
-                    en.en_text.last_mut().map(|w| {
-                        if let EnWord::Word(w) = w {
-                            w.push_str(" ");
                             w.push_str(&word);
                         }
                     });
