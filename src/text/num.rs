@@ -114,12 +114,15 @@ pub mod zh {
         if unit {
             let mut last_is_zero = true;
             for (s, u) in &r {
-                if last_is_zero && s == &"零" {
-                    continue;
-                }
                 if s == &"零" {
-                    builder.push_zh_word(s);
-                    last_is_zero = true;
+                    if !BASE_UNITS.contains(u) {
+                        if !last_is_zero {
+                            builder.push_zh_word(s);
+                            last_is_zero = true;
+                        }
+                    } else {
+                        builder.push_zh_word(u);
+                    }
                 } else {
                     builder.push_zh_word(s);
                     builder.push_zh_word(u);
@@ -135,6 +138,7 @@ pub mod zh {
         Ok(r)
     }
 
+    // cargo test --package gpt_sovits_rs --lib -- text::num::zh::test_parse_integer --exact --show-output
     #[test]
     fn test_parse_integer() {
         let mut builder = PhoneBuilder::new(false);
@@ -146,17 +150,26 @@ pub mod zh {
             println!("{:?}", s);
         }
 
-        println!("{:?}", builder.sentence.back().unwrap());
+        println!("{:?}", builder.sentence.pop_back().unwrap());
 
         let mut p =
-            ExprParser::parse(Rule::integer, "0780110001").unwrap_or_else(|e| panic!("{}", e));
+            ExprParser::parse(Rule::integer, "07801100170").unwrap_or_else(|e| panic!("{}", e));
         let p = p.next().unwrap();
         let r = parse_integer(p, &mut builder, true).unwrap();
         for s in r {
             println!("{:?}", s);
         }
 
-        println!("{:?}", builder.sentence.back().unwrap());
+        println!("{:?}", builder.sentence.pop_back().unwrap());
+
+        let mut p = ExprParser::parse(Rule::integer, "1010").unwrap_or_else(|e| panic!("{}", e));
+        let p = p.next().unwrap();
+        let r = parse_integer(p, &mut builder, true).unwrap();
+        for s in r {
+            println!("{:?}", s);
+        }
+
+        println!("{:?}", builder.sentence.pop_back().unwrap());
 
         let mut builder = PhoneBuilder::new(false);
 
@@ -168,7 +181,7 @@ pub mod zh {
             println!("{:?}", s);
         }
 
-        println!("{:?}", builder.sentence.back().unwrap());
+        println!("{:?}", builder.sentence.pop_back().unwrap());
     }
 
     fn parse_decimals(pair: Pair<Rule>, builder: &mut PhoneBuilder) -> anyhow::Result<()> {
