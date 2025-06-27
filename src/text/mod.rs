@@ -530,6 +530,18 @@ pub fn split_text(text: &str, max_chunk_size: usize) -> Vec<&str> {
         }
         if total_count + count > max_chunk_size {
             let t = start_text.split_at(splite_index);
+
+            // skip number like "1.2"
+            let mut t0 = t.0.chars();
+            if t0.next_back().is_some_and(|c| c == '.')
+                && t0.next_back().is_some_and(|c| c.is_numeric())
+                && t.1.chars().next().is_some_and(|c| c.is_numeric())
+            {
+                total_count += count;
+                splite_index += s.len();
+                continue;
+            }
+
             let trim_s = t.0.trim();
             if !trim_s.is_empty() {
                 r.push(trim_s);
@@ -556,6 +568,16 @@ pub fn split_text(text: &str, max_chunk_size: usize) -> Vec<&str> {
         r.push(start_text.trim());
     }
     r
+}
+
+// cargo test --package gpt_sovits_rs --lib -- text::test_split_text --exact --show-output
+#[test]
+fn test_split_text() {
+    let text = "这是一个测试文本 123.456。This is a test text.";
+    let r = split_text(text, 10);
+    assert_eq!(r.len(), 2);
+    assert_eq!(r[0], "这是一个测试文本 123.456。");
+    assert_eq!(r[1], "This is a test text.");
 }
 
 /// return: (phone_seq, bert_seq)
