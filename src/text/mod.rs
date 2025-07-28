@@ -983,13 +983,13 @@ fn parse_punctuation(p: &str) -> Option<&'static str> {
         "：" | ":" => Some(","),
         "‘" | "’" => Some("'"),
         "'" => Some("'"),
-        "“" | "”" | "\"" => Some("-"),
-        "（" | "(" => Some("-"),
-        "）" | ")" => Some("-"),
-        "【" | "[" => Some("-"),
-        "】" | "]" => Some("-"),
-        "《" | "<" => Some("-"),
-        "》" | ">" => Some("-"),
+        "“" | "”" | "\"" => Some(" "),
+        "（" | "(" => Some("["),
+        "）" | ")" => Some("]"),
+        "【" | "[" => Some("["),
+        "】" | "]" => Some("]"),
+        "《" | "<" => Some(" "),
+        "》" | ">" => Some(" "),
         "—" => Some("-"),
         "～" | "~" | "…" | "_" | "..." => Some("…"),
         "·" => Some(","),
@@ -1067,6 +1067,14 @@ impl PhoneBuilder {
                         .unwrap_or(false)
                 {
                     en.en_text.last_mut().map(|w| *w = EnWord::A);
+                }
+                if p == " "
+                    && en
+                        .en_text
+                        .last()
+                        .is_some_and(|w| matches!(w, EnWord::Punctuation(_)))
+                {
+                    return;
                 }
                 en.en_text.push(EnWord::Punctuation(p));
             }
