@@ -916,7 +916,7 @@ impl JpSentence {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Lang {
     Zh,
     En,
@@ -1028,6 +1028,7 @@ impl PhoneBuilder {
     }
 
     pub fn push_text(&mut self, jieba: &jieba_rs::Jieba, text: &str) {
+        let mut lang = Lang::En;
         let r = jieba.cut(text, true);
         log::info!("jieba cut: {:?}", r);
         for t in r {
@@ -1037,6 +1038,7 @@ impl PhoneBuilder {
                 self.push_punctuation(p);
             } else if g2pw::str_is_chinese(t) {
                 self.push_zh_word(t);
+                lang = Lang::Zh;
             } else if t.is_ascii() {
                 self.push_en_word(t);
             } else if self.enable_jp && is_jp_kana(t) {
@@ -1044,6 +1046,12 @@ impl PhoneBuilder {
                 self.push_jp_word(t);
             } else {
                 log::warn!("skip word: {:?} in {}", t, text);
+            }
+        }
+
+        for s in self.sentence.iter_mut() {
+            if let Sentence::Num(s) = s {
+                s.lang = lang;
             }
         }
     }
@@ -1210,7 +1218,7 @@ impl PhoneBuilder {
             _ => {
                 self.sentence.push_back(Sentence::Num(NumSentence {
                     num_text: word.to_string(),
-                    lang: Lang::Zh,
+                    lang: Lang::En,
                 }));
             }
         }
