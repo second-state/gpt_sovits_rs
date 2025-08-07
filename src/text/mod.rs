@@ -499,10 +499,11 @@ pub fn split_text(text: &str, max_chunk_size: usize) -> Vec<&str> {
             let t = start_text.split_at(splite_index);
 
             // skip number like "1.2"
+            // skip expression like "1,000"
+            // skip email like "example@gmail.com"
             let mut t0 = t.0.chars();
-            if t0.next_back().is_some_and(|c| c == '.')
-                && t0.next_back().is_some_and(|c| c.is_numeric())
-                && t.1.chars().next().is_some_and(|c| c.is_numeric())
+            if t0.next_back().is_some_and(|c| c == '.' || c == ',')
+                && t.1.chars().next().is_some_and(|c| c != ' ' && c != '\n')
             {
                 total_count += count;
                 splite_index += s.len();
@@ -540,11 +541,13 @@ pub fn split_text(text: &str, max_chunk_size: usize) -> Vec<&str> {
 // cargo test --package gpt_sovits_rs --lib -- text::test_split_text --exact --show-output
 #[test]
 fn test_split_text() {
-    let text = "这是一个测试文本 123.456。This is a test text.";
+    let text = "这是一个测试文本 123.456。This is a test text 123.456. my email address is example@gmail.com. 一千是1,000";
     let r = split_text(text, 10);
-    assert_eq!(r.len(), 2);
+    assert_eq!(r.len(), 4);
     assert_eq!(r[0], "这是一个测试文本 123.456。");
-    assert_eq!(r[1], "This is a test text.");
+    assert_eq!(r[1], "This is a test text 123.456.");
+    assert_eq!(r[2], "my email address is example@gmail.com.");
+    assert_eq!(r[3], "一千是1,000");
 }
 
 /// return: (phone_seq, bert_seq)
